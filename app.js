@@ -78,7 +78,7 @@ function blankState() {
     shifts: [],
     absences: [],
     availability: [true, true, true, true, true, false, false],
-    settings: { skelloUrl: '', lastIcsSync: 0, allowProxy: true },
+    settings: { skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'today' },
   };
 }
 function migrate(data) {
@@ -90,7 +90,7 @@ function migrate(data) {
   s.availability = (Array.isArray(data.availability) && data.availability.length === 7)
     ? data.availability.slice()
     : [true, true, true, true, true, false, false];
-  s.settings = Object.assign({ skelloUrl: '', lastIcsSync: 0, allowProxy: true }, data.settings || {});
+  s.settings = Object.assign({ skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'today' }, data.settings || {});
   return s;
 }
 function seedDemo() { /* jeu de démo inspiré du planning Skello, ancré sur la semaine courante */
@@ -210,7 +210,7 @@ function renderPlanning() {
   renderEstPanel();
   renderGrid();
   renderSummary();
-  renderMobileWeek();
+  renderMobileView();
 }
 function renderEstPanel() {
   const list = $('#estList');
@@ -289,24 +289,47 @@ function renderSummary() {
 }
 function changeWeek(n) { weekStart = addDays(weekStart, n * 7); renderPlanning(); }
 
-/* ---------- Vue mobile « semaine » (inspiration Skello) ---------- */
-function renderMobileWeek() {
+/* ---------- Vue mobile « Aujourd'hui » / « Semaine » (inspiration Skello) ---------- */
+let mdDayCursor = todayISO(); /* la page d'accueil mobile démarre toujours sur aujourd'hui */
+const mdMode = () => (state.settings.mobileView === 'week' ? 'week' : 'day');
+
+function renderMobileView() {
   const wrap = $('#mobileDayView');
   if (!wrap) return;
   const today = todayISO();
+  const week = mdMode() === 'week';
 
-  /* Bandeau de choix de la semaine : préc. / courante / suiv. (défilement horizontal) */
-  const pills = [];
-  for (const off of [-1, 0, 1]) {
-    const w = addDays(weekStart, off * 7), sun = addDays(w, 6);
-    const label = `${w.getDate()} ${MONTHS[w.getMonth()]} – ${sun.getDate()} ${MONTHS[sun.getMonth()]}`;
-    pills.push(`<button type="button" class="md-week-pill ${off === 0 ? 'sel' : ''}" data-off="${off}">${esc(label)}</button>`);
+  /* Bascule Aujourd'hui / Semaine */
+  const toggle = `<div class="md-viewtoggle">
+    <button type="button" class="md-vt ${week ? '' : 'sel'}" data-v="day">Aujourd'hui</button>
+    <button type="button" class="md-vt ${week ? 'sel' : ''}" data-v="week">Semaine</button>
+  </div>`;
+
+  /* Bandeau de choix de la semaine (mode Semaine uniquement) */
+  let strip = '';
+  if (week) {
+    const pills = [];
+    for (const off of [-1, 0, 1]) {
+      const w = addDays(weekStart, off * 7), sun = addDays(w, 6);
+      const label = `${w.getDate()} ${MONTHS[w.getMonth()]} – ${sun.getDate()} ${MONTHS[sun.getMonth()]}`;
+      pills.push(`<button type="button" class="md-week-pill ${off === 0 ? 'sel' : ''}" data-off="${off}">${esc(label)}</button>`);
+    }
+    strip = `
+    <div class="md-weekstrip">
+      <div class="md-weekscroll">${pills.join('')}</div>
+      ${state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello">⟳ Sync</button>' : ''}
+      <button type="button" class="md-todayjump" title="Revenir à la semaine en cours">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/></svg>
+      </button>
+    </div>`;
   }
 
-  /* Liste des 7 jours : en-tête façon Skello, puis absences et shifts triés par heure */
+  /* Jour courant (mode Aujourd'hui) ou les 7 jours (mode Semaine) */
+  const days = week ? [...Array(7)].map((_, i) => addDays(weekStart, i)) : [fromISO(mdDayCursor)];
+
   let daysHtml = '';
-  for (let i = 0; i < 7; i++) {
-    const d = addDays(weekStart, i), iso = toISO(d);
+  for (const d of days) {
+    const iso = toISO(d);
     const past = iso < today, isToday = iso === today;
 
     const dayShifts = [];
@@ -331,30 +354,22 @@ function renderMobileWeek() {
     daysHtml += `<div class="md-dayblock">
       <div class="md-dayhead ${isToday ? 'today' : ''}">
         <span class="md-hline"></span>
-        <span class="md-dhead">${DAYS_SHORT[i]} <b class="md-dnum">${d.getDate()}</b> ${MONTHS[d.getMonth()]}</span>
+        <span class="md-dhead">${DAYS_SHORT[(d.getDay() + 6) % 7]} <b class="md-dnum">${d.getDate()}</b> ${MONTHS[d.getMonth()]}${week ? '' : ` ${d.getFullYear()}`}</span>
         <span class="md-hline"></span>
       </div>
       <div class="md-cards">${cards}</div>
     </div>`;
   }
 
-  const strip = `
-    <div class="md-weekstrip">
-      <div class="md-weekscroll">${pills.join('')}</div>
-      ${state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello">⟳ Sync</button>' : ''}
-      <button type="button" class="md-todayjump" title="Revenir à la semaine en cours">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/></svg>
-      </button>
-    </div>`;
   const fab = `<button type="button" class="md-fab" id="mdAdd" title="Ajouter un shift" aria-label="Ajouter un shift">＋</button>`;
 
   if (!state.establishments.length) {
     wrap.innerHTML = `
-      ${strip}
+      ${toggle}
       <div class="md-empty" id="mdNoEst">🏢 Aucun établissement<br><span class="small">Touchez ici pour en ajouter un (menu → Établissements)</span></div>
       ${fab}`;
   } else {
-    wrap.innerHTML = `${strip}<div class="md-days">${daysHtml}</div>${fab}`;
+    wrap.innerHTML = `${toggle}${strip}<div class="md-days">${daysHtml}</div>${fab}`;
   }
 
   /* Centre le pill de la semaine affichée (scroll du bandeau uniquement) */
@@ -931,9 +946,16 @@ function init() {
     if (cell) openShiftModal(null, { estId: cell.dataset.est, date: cell.dataset.date });
   });
 
-  /* Vue mobile : bandeau semaines, cartes, FAB + swipe semaine préc./suiv. */
+  /* Vue mobile : bascule Aujourd'hui/Semaine, cartes, FAB + swipe (jour ou semaine) */
   const mdView = $('#mobileDayView');
   mdView.addEventListener('click', e => {
+    const vt = e.target.closest('.md-vt');
+    if (vt) {
+      state.settings.mobileView = vt.dataset.v;
+      if (vt.dataset.v === 'week') weekStart = startOfWeek(fromISO(mdDayCursor));
+      save(); renderPlanning();
+      return;
+    }
     const wp = e.target.closest('.md-week-pill');
     if (wp) { weekStart = addDays(weekStart, Number(wp.dataset.off) * 7); renderPlanning(); return; }
     if (e.target.closest('.md-todayjump')) { weekStart = startOfWeek(new Date()); renderPlanning(); return; }
@@ -946,7 +968,9 @@ function init() {
     if (e.target.closest('#mdNoEst')) { switchView('establishments'); return; }
     if (e.target.closest('#mdAdd')) {
       const isCur = toISO(weekStart) === toISO(startOfWeek(new Date()));
-      openShiftModal(null, { date: isCur ? todayISO() : toISO(weekStart) });
+      openShiftModal(null, {
+        date: mdMode() === 'week' ? (isCur ? todayISO() : toISO(weekStart)) : mdDayCursor,
+      });
     }
   });
   let mdTouch = null;
@@ -961,7 +985,10 @@ function init() {
     const dx = e.changedTouches[0].clientX - mdTouch.x;
     const dy = e.changedTouches[0].clientY - mdTouch.y;
     mdTouch = null;
-    if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.4) changeWeek(dx < 0 ? 1 : -1);
+    if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      if (mdMode() === 'week') changeWeek(dx < 0 ? 1 : -1);
+      else { mdDayCursor = toISO(addDays(fromISO(mdDayCursor), dx < 0 ? 1 : -1)); renderPlanning(); }
+    }
   }, { passive: true });
 
   /* Vue établissements : liste + ajout */
