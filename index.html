@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0a0e15">
+<meta name="color-scheme" content="dark">
+<title>Créno — Votre planning, simplement</title>
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-logo">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    </div>
+    <span>Créno</span>
+  </div>
+
+  <nav class="main-nav" id="mainNav">
+    <button type="button" class="nav-link active" data-view="planning" data-emoji="🗓️">Planning</button>
+    <button type="button" class="nav-link" data-view="absences" data-emoji="🌴">Absences</button>
+    <button type="button" class="nav-link" data-view="stats" data-emoji="📊">Statistiques</button>
+    <button type="button" class="nav-link" data-view="profile" data-emoji="👤">Mon profil</button>
+  </nav>
+
+  <div class="topbar-right">
+    <span class="save-state" id="saveState" title="Vos données sont sauvegardées dans ce navigateur">Sauvegarde locale</span>
+    <div class="avatar-wrap">
+      <button type="button" class="avatar" id="avatarBtn" title="Menu">?</button>
+      <div class="dropdown hidden" id="avatarMenu">
+        <div class="dropdown-head">
+          <div class="avatar" id="menuAvatar">?</div>
+          <div>
+            <div class="dd-name" id="menuName">Mon profil</div>
+            <div class="dd-mail" id="menuEmail">—</div>
+          </div>
+        </div>
+        <button type="button" data-action="goto-profile">👤 Profil &amp; disponibilités</button>
+        <button type="button" data-action="goto-establishments">🏢 Établissements</button>
+        <button type="button" data-action="goto-absences">🌴 Absences</button>
+        <button type="button" data-action="export">⬇️ Exporter (JSON)</button>
+        <button type="button" data-action="import-ics">📅 Importer depuis Skello (ICS)</button>
+        <button type="button" data-action="import">⬆️ Importer (JSON)</button>
+        <button type="button" data-action="reset" class="danger">🗑️ Réinitialiser…</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="app">
+
+  <!-- ================= PLANNING ================= -->
+  <section class="view" id="view-planning">
+    <div class="weekbar">
+      <div class="weekbar-left">
+        <button type="button" class="icon-btn" id="prevWeek" title="Semaine précédente (←)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div class="week-pill" id="weekLabel">…</div>
+        <button type="button" class="icon-btn" id="nextWeek" title="Semaine suivante (→)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <span class="week-num" id="weekNum">Semaine —</span>
+        <button type="button" class="btn ghost" id="todayBtn">Aujourd'hui</button>
+        <input type="date" id="jumpDate" class="date-jump" title="Aller à la semaine contenant cette date">
+      </div>
+      <div class="weekbar-right">
+        <button type="button" class="btn ghost hidden" id="syncIcsBtn" title="Récupérer automatiquement le planning publié sur Skello">⟳ Sync Skello</button>
+        <button type="button" class="btn ghost" id="dupWeekBtn" title="Copier les shifts de la semaine précédente">⧉ Dupliquer sem. préc.</button>
+        <button type="button" class="btn primary" id="addShiftBtn">＋ Ajouter un shift</button>
+      </div>
+    </div>
+
+    <div class="planning-layout">
+      <aside class="est-panel">
+        <div class="est-panel-title">Établissements</div>
+        <div id="estList"></div>
+        <form id="estAddForm" class="est-add">
+          <input type="text" id="estAddName" placeholder="Nouvel établissement…" maxlength="40" required>
+          <button type="submit" class="btn ghost" title="Ajouter">＋</button>
+        </form>
+      </aside>
+      <div class="grid-wrap">
+        <div class="week-grid" id="weekGrid"></div>
+      </div>
+    </div>
+
+    <!-- Vue mobile jour-par-jour (affichée < 720px, la grille semaine est masquée) -->
+    <div class="mobile-day" id="mobileDayView"></div>
+
+    <footer class="summarybar" id="summaryBar"></footer>
+  </section>
+
+  <!-- ================= ABSENCES ================= -->
+  <section class="view hidden" id="view-absences">
+    <div class="page-head">
+      <h2>Absences</h2>
+      <button type="button" class="btn primary" id="addAbsenceBtn">＋ Demander une absence</button>
+    </div>
+    <div class="empty-state" id="absenceEmpty">
+      <div class="empty-icon">🌴</div>
+      <h3>Planifiez vos absences</h3>
+      <p>Demandez, visualisez et suivez vos absences.<br>Elles s'affichent directement dans le planning.</p>
+      <button type="button" class="btn primary" id="addAbsenceBtn2">Demander une absence</button>
+    </div>
+    <div id="absenceList" class="hidden"></div>
+  </section>
+
+  <!-- ================= STATISTIQUES ================= -->
+  <section class="view hidden" id="view-stats">
+    <div class="page-head">
+      <h2>Statistiques</h2>
+      <span class="muted small">Basé sur vos shifts enregistrés · calculs 100&nbsp;% locaux</span>
+    </div>
+    <div class="cards">
+      <div class="stat-card green">
+        <div class="k">Heures cette semaine</div>
+        <div class="v" id="statWeek">—</div>
+        <div class="s" id="statWeekSub"></div>
+      </div>
+      <div class="stat-card blue">
+        <div class="k">Heures ce mois</div>
+        <div class="v" id="statMonth">—</div>
+        <div class="s" id="statMonthSub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="k">Shifts ce mois</div>
+        <div class="v" id="statShifts">—</div>
+        <div class="s">Postes travaillés</div>
+      </div>
+      <div class="stat-card green">
+        <div class="k">Rémunération estimée (mois)</div>
+        <div class="v" id="statPay">—</div>
+        <div class="s" id="statPaySub">Selon votre taux horaire</div>
+        <div class="mini hidden" id="statPayMini"><div class="mini-bar" id="statPayBar"></div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Heures par semaine <span class="muted small">(8 dernières semaines)</span></h3>
+      <div class="bars" id="barsWeeks"></div>
+    </div>
+    <div class="panel">
+      <h3>Répartition par établissement <span class="muted small">(30 derniers jours)</span></h3>
+      <div id="hbarsEst"></div>
+    </div>
+    <div class="panel">
+      <h3>Top des postes <span class="muted small">(30 derniers jours)</span></h3>
+      <div id="hbarsLabels"></div>
+    </div>
+  </section>
+
+  <!-- ================= PROFIL ================= -->
+  <section class="view hidden" id="view-profile">
+    <div class="page-head"><h2>Mon profil</h2></div>
+    <div class="profile-layout">
+      <div class="form-card">
+        <div class="profile-head">
+          <div class="avatar avatar-xl" id="profileAvatar">?</div>
+          <div>
+            <div class="profile-name" id="profileName">Votre profil</div>
+            <div class="muted" id="profileSub">Renseignez vos informations pour personnaliser l'app</div>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <label class="field"><span>Prénom</span><input type="text" id="pFirst" placeholder="Prénom"></label>
+          <label class="field"><span>Nom</span><input type="text" id="pLast" placeholder="Nom"></label>
+          <label class="field"><span>E-mail</span><input type="email" id="pEmail" placeholder="vous@exemple.fr"></label>
+          <label class="field"><span>Téléphone</span><input type="tel" id="pPhone" placeholder="+33 6 12 34 56 78"></label>
+          <label class="field"><span>Taux horaire (€/h)</span><input type="text" inputmode="decimal" id="pRate" placeholder="12,50"></label>
+          <label class="field"><span>Objectif hebdomadaire (h)</span><input type="text" inputmode="decimal" id="pObjective" placeholder="35"></label>
+          <label class="field"><span>Salaire mensuel de référence (€)</span><input type="text" inputmode="decimal" id="pRefSalary" placeholder="1500"></label>
+        </div>
+
+        <div class="field-block">
+          <div class="field-label">Disponibilités habituelles</div>
+          <div class="chips" id="availChips"></div>
+          <div class="muted small" style="margin-top:8px">Un avertissement s'affiche si vous planifiez un shift un jour habituellement indisponible.</div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap">
+          <button type="button" class="btn primary" id="profileSave">Enregistrer</button>
+          <button type="button" class="btn danger" id="resetBtn">Réinitialiser les données</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ÉTABLISSEMENTS ================= -->
+  <section class="view hidden" id="view-establishments">
+    <div class="page-head">
+      <h2>Établissements</h2>
+      <span class="muted small">Les lieux où vous travaillez</span>
+    </div>
+    <div class="form-card">
+      <form id="estViewAddForm" class="row" autocomplete="off" style="margin-bottom:6px">
+        <input type="text" id="estViewName" placeholder="Nom du nouvel établissement…" maxlength="40" required>
+        <button type="submit" class="btn primary">＋ Ajouter</button>
+      </form>
+      <div id="estViewList"></div>
+      <p class="muted small" style="margin:12px 0 0">💡 Touchez un établissement pour le renommer, changer sa couleur ou le supprimer. Ils apparaissent automatiquement dans le planning.</p>
+    </div>
+  </section>
+
+</main>
+
+<!-- ================= DIALOGS ================= -->
+<dialog id="shiftModal">
+  <form id="shForm" autocomplete="off">
+    <div class="dialog-head"><h3 id="shTitle">Nouveau shift</h3><span class="dur-preview" id="shDur"></span></div>
+    <div class="dialog-body">
+      <div id="shWarn" class="warn-line hidden"></div>
+      <label class="field"><span>Établissement</span><select id="shEst"></select></label>
+      <div class="form-grid">
+        <label class="field"><span>Date</span><input type="date" id="shDate" required></label>
+        <label class="field"><span>Poste / label</span><input type="text" id="shLabel" list="shLabelList" placeholder="DRIVE…"></label>
+        <label class="field"><span>Début</span><input type="time" id="shStart" required></label>
+        <label class="field"><span>Fin</span><input type="time" id="shEnd" required></label>
+      </div>
+      <label class="field"><span>Note (optionnel)</span><textarea id="shNote" rows="2" placeholder="Précisions…"></textarea></label>
+      <datalist id="shLabelList">
+        <option value="DRIVE"></option>
+        <option value="CAISSE"></option>
+        <option value="SALLE"></option>
+        <option value="CUISINE"></option>
+        <option value="FORMATION INTERNE"></option>
+        <option value="INVENTAIRE"></option>
+        <option value="RÉUNION"></option>
+        <option value="MÉNAGE"></option>
+      </datalist>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn danger" id="shDelete">Supprimer</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost" id="shCancel">Annuler</button>
+      <button type="submit" class="btn primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="absenceModal">
+  <form id="abForm" autocomplete="off">
+    <div class="dialog-head"><h3 id="abTitle">Demander une absence</h3></div>
+    <div class="dialog-body">
+      <label class="field"><span>Type</span><select id="abType"></select></label>
+      <div class="form-grid">
+        <label class="field"><span>Du</span><input type="date" id="abStart" required></label>
+        <label class="field"><span>Au</span><input type="date" id="abEnd" required></label>
+      </div>
+      <label class="field"><span>Note (optionnel)</span><textarea id="abNote" rows="2" placeholder="Commentaire…"></textarea></label>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn danger" id="abDelete">Supprimer</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost" id="abCancel">Annuler</button>
+      <button type="submit" class="btn primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="estModal">
+  <form id="estForm" autocomplete="off">
+    <div class="dialog-head"><h3>Modifier l'établissement</h3></div>
+    <div class="dialog-body">
+      <label class="field"><span>Nom</span><input type="text" id="estName" maxlength="40" required></label>
+      <div class="field-block">
+        <div class="field-label">Couleur</div>
+        <div class="color-row" id="estColors"></div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn danger" id="estDelete">Supprimer</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost" id="estCancel">Annuler</button>
+      <button type="submit" class="btn primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="icsModal">
+  <div class="dialog-head"><h3>📅 Importer depuis Skello</h3><button type="button" class="icon-btn" id="icsCancel" title="Fermer">✕</button></div>
+  <div class="dialog-body">
+    <div class="help-line">
+      Dans Skello : <b>Mon profil → Synchroniser le calendrier</b>, copiez l'URL affichée.<br>
+      Vos créneaux deviennent des <b>shifts</b> et vos journées de congés des <b>absences</b>. Les doublons sont ignorés.
+    </div>
+    <div class="help-line ext hidden" id="extSyncNote">🔐 <b>Extension Firefox</b> : la récupération directe depuis Skello est autorisée (permission accordée à l'installation) — aucune donnée ne transite par un relais, c'est 100 % privé.</div>
+    <label class="field"><span>URL du calendrier Skello (copiée depuis « Synchroniser le calendrier »)</span>
+      <div class="row">
+        <input type="url" id="icsUrl" placeholder="https://api.skello.io/users/…/feeds/ics/…">
+        <button type="button" class="btn primary" id="icsSaveUrlBtn">Enregistrer</button>
+      </div>
+    </label>
+    <div class="sync-meta">
+      <span class="muted small" id="icsLastSync">Jamais synchronisé</span>
+      <button type="button" class="btn ghost" id="icsSyncNowBtn">⟳ Synchroniser maintenant</button>
+    </div>
+    <label class="check">
+      <input type="checkbox" id="icsAllowProxy" checked>
+      <span>Si Skello bloque la demande directe (CORS), passer par un relais public. <span class="muted small">⚠️ Ton URL contient un jeton privé : via un relais, elle transite par un serveur tiers. Méthode 100 % privée : le fichier .ics téléchargé.</span></span>
+    </label>
+    <div class="sep-line">ou manuellement</div>
+    <label class="field"><span>Depuis un fichier .ics <span class="muted small">(méthode fiable : ouvrez l'URL dans le navigateur, il télécharge le fichier)</span></span>
+      <button type="button" class="btn ghost" id="icsFileBtn">📄 Choisir un fichier .ics…</button>
+    </label>
+    <label class="field"><span>Coller le contenu du calendrier</span>
+      <textarea id="icsPaste" rows="4" placeholder="BEGIN:VCALENDAR …"></textarea>
+    </label>
+    <div style="text-align:right;margin-bottom:14px">
+      <button type="button" class="btn primary" id="icsParseBtn">Analyser et importer</button>
+    </div>
+    <p class="muted small" style="margin:0">💡 Vous pouvez aussi glisser-déposer un fichier .ics directement dans la fenêtre.</p>
+  </div>
+</dialog>
+<input type="file" id="icsFile" accept=".ics,text/calendar" hidden>
+
+<dialog id="confirmModal">
+  <div class="dialog-head"><h3 id="cfTitle"></h3></div>
+  <div class="dialog-body"><p class="muted" id="cfMsg" style="margin:0"></p></div>
+  <div class="dialog-foot">
+    <span class="spacer"></span>
+    <button type="button" class="btn ghost" id="cfCancel">Annuler</button>
+    <button type="button" class="btn danger" id="cfOk">Confirmer</button>
+  </div>
+</dialog>
+
+<div id="toasts"></div>
+<div id="dropOverlay" class="drop-overlay hidden"><div class="box">📥 Déposez votre fichier JSON ou ICS pour l'importer</div></div>
+<input type="file" id="importFile" accept="application/json,.json" hidden>
+
+<script src="app.js"></script>
+</body>
+</html>
