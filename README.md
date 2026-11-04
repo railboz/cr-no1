@@ -11,7 +11,6 @@ Alternative légère et 100 % locale à Skello, en HTML/CSS/JS pur. Aucun serveu
 - **Statistiques** : heures par semaine (8 semaines), répartition par établissement et par poste, total du mois.
 - **Ajouts originaux** :
   - 💶 **Rémunération estimée** (taux horaire réglable dans le profil) et barre d'**objectif hebdomadaire** ;
-  - ⧉ **Duplication de la semaine précédente** en un clic ;
   - ⚠️ **Disponibilités habituelles** : alerte si vous planifiez un shift un jour habituellement indisponible ;
   - ⌨️ **Raccourcis clavier** : `←` / `→` changer de semaine, `N` nouveau shift ;
   - 📥 **Glisser-déposer** d'un fichier JSON n'importe où dans la fenêtre pour l'importer.
@@ -96,7 +95,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-extension.ps1
 Créno existe aussi en **extension Firefox**, pensée d'abord pour le mobile :
 
 - **Navigation en bas de l'écran** (Planning · Absences · Statistiques · Profil) ;
-- **Vue jour-par-jour** : pilules de jours en haut, swipe gauche/droite pour changer de jour ;
+- **Vue semaine façon Skello** : bandeau de choix de semaine (défilement + swipe), liste verticale des 7 jours avec les jours passés grisés, aujourd'hui mis en avant, bouton ○ pour revenir à la semaine en cours ;
 - **Modales en bottom-sheet** qui montent du bas de l'écran, zones tactiles larges ;
 - **Synchro Skello 100 % privée** : grâce aux permissions de l'extension, la récupération directe de votre calendrier ICS est autorisée — **aucun relais public, aucune donnée qui transite par un tiers**.
 

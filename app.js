@@ -210,7 +210,7 @@ function renderPlanning() {
   renderEstPanel();
   renderGrid();
   renderSummary();
-  renderMobileDay();
+  renderMobileWeek();
 }
 function renderEstPanel() {
   const list = $('#estList');
@@ -289,63 +289,77 @@ function renderSummary() {
 }
 function changeWeek(n) { weekStart = addDays(weekStart, n * 7); renderPlanning(); }
 
-/* ---------- Vue mobile jour-par-jour ---------- */
-let mobileDayIdx = (new Date().getDay() + 6) % 7;
-const mobileTodayIdx = () => (new Date().getDay() + 6) % 7;
-
-function renderMobileDay() {
+/* ---------- Vue mobile « semaine » (inspiration Skello) ---------- */
+function renderMobileWeek() {
   const wrap = $('#mobileDayView');
   if (!wrap) return;
-  const day = addDays(weekStart, mobileDayIdx);
-  const iso = toISO(day);
   const today = todayISO();
 
-  let pills = '';
+  /* Bandeau de choix de la semaine : préc. / courante / suiv. (défilement horizontal) */
+  const pills = [];
+  for (const off of [-1, 0, 1]) {
+    const w = addDays(weekStart, off * 7), sun = addDays(w, 6);
+    const label = `${w.getDate()} ${MONTHS[w.getMonth()]} – ${sun.getDate()} ${MONTHS[sun.getMonth()]}`;
+    pills.push(`<button type="button" class="md-week-pill ${off === 0 ? 'sel' : ''}" data-off="${off}">${esc(label)}</button>`);
+  }
+
+  /* Liste des 7 jours : en-tête façon Skello, puis absences et shifts triés par heure */
+  let daysHtml = '';
   for (let i = 0; i < 7; i++) {
-    const d = addDays(weekStart, i), isT = toISO(d) === today;
-    pills += `<button type="button" class="day-pill ${i === mobileDayIdx ? 'sel' : ''} ${isT ? 'today' : ''}" data-i="${i}">
-      <span class="dp-name">${DAYS_SHORT[i].replace('.', '')}</span>
-      <span class="dp-num">${d.getDate()}</span>
-    </button>`;
-  }
+    const d = addDays(weekStart, i), iso = toISO(d);
+    const past = iso < today, isToday = iso === today;
 
-  let body = '';
-  if (!state.establishments.length) {
-    body = '<div class="md-empty" id="mdNoEst">🏢 Aucun établissement<br><span class="small">Touchez ici pour en ajouter un (menu → Établissements)</span></div>';
-  } else {
+    const dayShifts = [];
     state.establishments.forEach(est => {
-      const shifts = state.shifts.filter(s => s.estId === est.id && s.date === iso).sort((a, b) => mins(a.start) - mins(b.start));
-      const abs = state.absences.filter(a => a.start <= iso && iso <= a.end);
-      if (!shifts.length && !abs.length) return;
-      const total = shifts.reduce((t, s) => t + durMinutes(s.start, s.end), 0);
-      body += `<div class="md-est">
-        <div class="md-est-head" data-est="${est.id}">
-          <span class="est-dot" style="background:${est.color}"></span>
-          <span>${esc(est.name)}</span>
-          ${total ? `<span class="md-est-total">${fmtDur(total)}</span>` : ''}
-        </div>
-        ${abs.map(a => {
-          const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
-          return `<div class="md-absence" data-absence="1" style="border-color:${meta.color}55;color:${meta.color};background:${meta.color}14">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
-        }).join('')}
-        ${shifts.map(s => `
-          <button type="button" class="shift" data-id="${s.id}" style="background:linear-gradient(135deg, ${est.color}, ${shade(est.color, -0.3)})" title="${esc(s.note || '')}">
-            <span class="shift-time">${esc(s.start)} – ${esc(s.end)}</span>
-            <span class="shift-dur">${fmtDur(durMinutes(s.start, s.end))}</span>
-            <span class="shift-label">${esc(s.label || 'SHIFT')}</span>
-          </button>`).join('')}
-      </div>`;
+      state.shifts.filter(s => s.estId === est.id && s.date === iso).forEach(s => dayShifts.push({ s, est }));
     });
-    if (!body) {
-      body = `<div class="md-empty">😌 Rien de prévu le ${DAYS_LONG[mobileDayIdx]} ${day.getDate()} ${MONTHS[day.getMonth()]}<br><span class="small">Touchez ici pour ajouter un shift</span></div>`;
-    }
+    dayShifts.sort((a, b) => mins(a.s.start) - mins(b.s.start));
+    const abs = state.absences.filter(a => a.start <= iso && iso <= a.end);
+
+    let cards = abs.map(a => {
+      const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
+      return `<div class="md-absence ${past ? 'past' : ''}" data-absence="1" style="border-color:${meta.color}55;color:${meta.color};background:${meta.color}14">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
+    }).join('');
+    cards += dayShifts.map(({ s, est }) => `
+      <button type="button" class="md-shift ${past ? 'past' : ''}" data-id="${s.id}" style="--c:${est.color}" title="${esc(s.note || '')}">
+        <span class="md-bar"></span>
+        <span class="md-row"><span class="md-time">${esc(s.start)} – ${esc(s.end)}</span><span class="md-estname">${esc(est.name)}</span><span class="md-dur">${fmtDur(durMinutes(s.start, s.end))}</span></span>
+        <span class="md-label">${esc(s.label || 'SHIFT')}</span>
+      </button>`).join('');
+    if (!cards) cards = `<button type="button" class="md-nochip" data-date="${iso}">ⓘ Aucun shift prévu</button>`;
+
+    daysHtml += `<div class="md-dayblock">
+      <div class="md-dayhead ${isToday ? 'today' : ''}">
+        <span class="md-hline"></span>
+        <span class="md-dhead">${DAYS_SHORT[i]} <b class="md-dnum">${d.getDate()}</b> ${MONTHS[d.getMonth()]}</span>
+        <span class="md-hline"></span>
+      </div>
+      <div class="md-cards">${cards}</div>
+    </div>`;
   }
 
-  wrap.innerHTML = `
-    <div class="day-pills">${pills}</div>
-    <div class="md-date"><b>${DAYS_LONG[mobileDayIdx]}</b> ${day.getDate()} ${MONTHS[day.getMonth()]} ${day.getFullYear()}${iso === today ? ' · <span class="md-today">aujourd&#39;hui</span>' : ''}</div>
-    <div class="md-list">${body}</div>
-    <button type="button" class="btn primary md-add" id="mdAdd">＋ Ajouter un shift</button>`;
+  const strip = `
+    <div class="md-weekstrip">
+      <div class="md-weekscroll">${pills.join('')}</div>
+      ${state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello">⟳ Sync</button>' : ''}
+      <button type="button" class="md-todayjump" title="Revenir à la semaine en cours">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/></svg>
+      </button>
+    </div>`;
+  const fab = `<button type="button" class="md-fab" id="mdAdd" title="Ajouter un shift" aria-label="Ajouter un shift">＋</button>`;
+
+  if (!state.establishments.length) {
+    wrap.innerHTML = `
+      ${strip}
+      <div class="md-empty" id="mdNoEst">🏢 Aucun établissement<br><span class="small">Touchez ici pour en ajouter un (menu → Établissements)</span></div>
+      ${fab}`;
+  } else {
+    wrap.innerHTML = `${strip}<div class="md-days">${daysHtml}</div>${fab}`;
+  }
+
+  /* Centre le pill de la semaine affichée (scroll du bandeau uniquement) */
+  const stripEl = wrap.querySelector('.md-weekscroll'), sel = wrap.querySelector('.md-week-pill.sel');
+  if (stripEl && sel) stripEl.scrollLeft = Math.max(0, sel.offsetLeft + sel.offsetWidth / 2 - stripEl.clientWidth / 2);
 }
 
 /* ---------- Modal shift ---------- */
@@ -899,32 +913,12 @@ function init() {
   /* Navigation semaines */
   $('#prevWeek').addEventListener('click', () => changeWeek(-1));
   $('#nextWeek').addEventListener('click', () => changeWeek(1));
-  $('#todayBtn').addEventListener('click', () => { weekStart = startOfWeek(new Date()); mobileDayIdx = mobileTodayIdx(); renderPlanning(); });
+  $('#todayBtn').addEventListener('click', () => { weekStart = startOfWeek(new Date()); renderPlanning(); });
   $('#jumpDate').addEventListener('change', () => {
     const v = $('#jumpDate').value;
-    if (v) { weekStart = startOfWeek(fromISO(v)); mobileDayIdx = mobileTodayIdx(); renderPlanning(); }
+    if (v) { weekStart = startOfWeek(fromISO(v)); renderPlanning(); }
   });
   $('#addShiftBtn').addEventListener('click', () => openShiftModal(null, { date: toISO(weekStart) }));
-
-  /* Dupliquer la semaine précédente */
-  $('#dupWeekBtn').addEventListener('click', async () => {
-    const prev = addDays(weekStart, -7);
-    const from = toISO(prev), to = toISO(addDays(prev, 6));
-    const src = state.shifts.filter(s => s.date >= from && s.date <= to);
-    if (!src.length) { toast('La semaine précédente est vide', 'error'); return; }
-    const ws = weekShifts();
-    if (ws.length) {
-      const ok = await confirmDialog(
-        'Dupliquer la semaine précédente ?',
-        `${src.length} shift(s) seront ajoutés à la semaine du ${fmtRange(weekStart)}, qui contient déjà ${ws.length} shift(s).`,
-        'Dupliquer', false
-      );
-      if (!ok) return;
-    }
-    src.forEach(s => state.shifts.push({ ...s, id: uid(), date: toISO(addDays(fromISO(s.date), 7)) }));
-    save(); renderPlanning();
-    toast(`${src.length} shift(s) dupliqué(s) ✓`);
-  });
 
   /* Grille : clic sur shift / absence / cellule vide / établissement */
   $('#weekGrid').addEventListener('click', e => {
@@ -937,34 +931,37 @@ function init() {
     if (cell) openShiftModal(null, { estId: cell.dataset.est, date: cell.dataset.date });
   });
 
-  /* Vue mobile : clics (pills, shifts, absences, établissements) + swipe jour précédent/suivant */
+  /* Vue mobile : bandeau semaines, cartes, FAB + swipe semaine préc./suiv. */
   const mdView = $('#mobileDayView');
   mdView.addEventListener('click', e => {
-    const pill = e.target.closest('.day-pill');
-    if (pill) { mobileDayIdx = Number(pill.dataset.i); renderMobileDay(); return; }
-    const sh = e.target.closest('.shift');
+    const wp = e.target.closest('.md-week-pill');
+    if (wp) { weekStart = addDays(weekStart, Number(wp.dataset.off) * 7); renderPlanning(); return; }
+    if (e.target.closest('.md-todayjump')) { weekStart = startOfWeek(new Date()); renderPlanning(); return; }
+    if (e.target.closest('.md-sync')) { $('#syncIcsBtn')?.click(); return; }
+    const sh = e.target.closest('.md-shift');
     if (sh) { openShiftModal(sh.dataset.id); return; }
     if (e.target.closest('.md-absence')) { switchView('absences'); return; }
-    const head = e.target.closest('.md-est-head');
-    if (head) { openEstModal(head.dataset.est); return; }
+    const chip = e.target.closest('.md-nochip');
+    if (chip) { openShiftModal(null, { date: chip.dataset.date }); return; }
     if (e.target.closest('#mdNoEst')) { switchView('establishments'); return; }
-    if (e.target.closest('#mdAdd') || e.target.closest('.md-empty')) {
-      openShiftModal(null, { date: toISO(addDays(weekStart, mobileDayIdx)) });
+    if (e.target.closest('#mdAdd')) {
+      const isCur = toISO(weekStart) === toISO(startOfWeek(new Date()));
+      openShiftModal(null, { date: isCur ? todayISO() : toISO(weekStart) });
     }
   });
   let mdTouch = null;
   mdView.addEventListener('touchstart', e => {
-    if (e.touches.length === 1) mdTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    /* le swipe horizontal navigue les semaines ; on l'ignore s'il démarre dans le bandeau défilant */
+    if (e.touches.length === 1 && !e.target.closest('.md-weekscroll')) {
+      mdTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
   }, { passive: true });
   mdView.addEventListener('touchend', e => {
     if (!mdTouch) return;
     const dx = e.changedTouches[0].clientX - mdTouch.x;
     const dy = e.changedTouches[0].clientY - mdTouch.y;
     mdTouch = null;
-    if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.4) {
-      const next = Math.min(6, Math.max(0, mobileDayIdx + (dx < 0 ? 1 : -1)));
-      if (next !== mobileDayIdx) { mobileDayIdx = next; renderMobileDay(); }
-    }
+    if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.4) changeWeek(dx < 0 ? 1 : -1);
   }, { passive: true });
 
   /* Vue établissements : liste + ajout */
