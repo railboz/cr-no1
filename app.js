@@ -323,6 +323,22 @@ let mobileDayIdx = (new Date().getDay() + 6) % 7;
 const mobileTodayIdx = () => (new Date().getDay() + 6) % 7;
 const mdMode = () => (state.settings.mobileView === 'week' ? 'week' : 'day');
 
+/* Animation de glissement (swipe jour précédent/suivant, semaine en vue Semaine) */
+let mdSlideDir = 0; /* 0 = aucune, 1 = entrée par la droite (suivant), -1 = par la gauche (précédent) */
+function mdClearAnim(wrap) { wrap.classList.remove('md-anim-next', 'md-anim-prev', 'md-bump-next', 'md-bump-prev'); }
+function mdPlayAnim(wrap) {
+  if (!mdSlideDir) return;
+  mdClearAnim(wrap);
+  void wrap.offsetWidth; /* reflow : relance l'animation même sur deux swipes rapprochés */
+  wrap.classList.add(mdSlideDir > 0 ? 'md-anim-next' : 'md-anim-prev');
+  mdSlideDir = 0;
+}
+function mdBump(wrap, dir) {
+  mdClearAnim(wrap);
+  void wrap.offsetWidth;
+  wrap.classList.add(dir > 0 ? 'md-bump-next' : 'md-bump-prev');
+}
+
 function renderMobileView() {
   const wrap = $('#mobileDayView');
   if (!wrap) return;
@@ -368,6 +384,7 @@ function renderMobileView() {
     wrap.innerHTML = `
       <div class="md-date">${sync}<b>Semaine ${isoWeek(weekStart)}</b> · ${esc(fmtRange(weekStart))}</div>
       <div class="md-days">${daysHtml}</div>`;
+    mdPlayAnim(wrap);
     return;
   }
 
@@ -414,6 +431,7 @@ function renderMobileView() {
     <div class="md-date">${sync}<b>${DAYS_LONG[mobileDayIdx]}</b> ${day.getDate()} ${MONTHS[day.getMonth()]} ${day.getFullYear()}${iso === today ? ' · <span class="md-today">aujourd&#39;hui</span>' : ''}</div>
     <div class="md-list">${body}</div>
     <button type="button" class="btn primary md-add" id="mdAdd">＋ Ajouter un shift</button>`;
+  mdPlayAnim(wrap);
 }
 /* ---------- Modal shift ---------- */
 let editingShiftId = null;
@@ -1019,11 +1037,14 @@ function init() {
     const dy = e.changedTouches[0].clientY - mdTouch.y;
     mdTouch = null;
     if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.4) {
-      if (mdMode() === 'week') { changeWeek(dx < 0 ? 1 : -1); return; }
-      const next = Math.min(6, Math.max(0, mobileDayIdx + (dx < 0 ? 1 : -1)));
-      if (next !== mobileDayIdx) { mobileDayIdx = next; renderMobileView(); }
+      const dir = dx < 0 ? 1 : -1;
+      if (mdMode() === 'week') { mdSlideDir = dir; changeWeek(dir); return; }
+      const next = Math.min(6, Math.max(0, mobileDayIdx + dir));
+      if (next !== mobileDayIdx) { mdSlideDir = dir; mobileDayIdx = next; renderMobileView(); }
+      else mdBump(mdView, dir); /* bout de semaine : petit rebond plutôt qu'un swipe mort */
     }
   }, { passive: true });
+  mdView.addEventListener('animationend', () => mdClearAnim(mdView));
 
   /* Bouton Semaine/Jour (mobile) : bascule entre la vue jour et la liste des 7 jours */
   $('#mdWeekBtn').addEventListener('click', () => {
