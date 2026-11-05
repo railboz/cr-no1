@@ -78,7 +78,7 @@ function blankState() {
     shifts: [],
     absences: [],
     availability: [true, true, true, true, true, false, false],
-    settings: { skelloUrl: '', lastIcsSync: 0, allowProxy: true },
+    settings: { skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day' },
   };
 }
 function migrate(data) {
@@ -90,7 +90,7 @@ function migrate(data) {
   s.availability = (Array.isArray(data.availability) && data.availability.length === 7)
     ? data.availability.slice()
     : [true, true, true, true, true, false, false];
-  s.settings = Object.assign({ skelloUrl: '', lastIcsSync: 0, allowProxy: true }, data.settings || {});
+  s.settings = Object.assign({ skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day' }, data.settings || {});
   return s;
 }
 function seedDemo() { /* jeu de démo inspiré du planning Skello, ancré sur la semaine courante */
@@ -211,6 +211,8 @@ function renderPlanning() {
   renderGrid();
   renderSummary();
   renderMobileView();
+  const wb = $('#mdWeekBtn');
+  if (wb) wb.textContent = mdMode() === 'week' ? '🗓️ Jour' : '📅 Semaine';
 }
 function renderEstPanel() {
   const list = $('#estList');
@@ -289,16 +291,62 @@ function renderSummary() {
 }
 function changeWeek(n) { weekStart = addDays(weekStart, n * 7); renderPlanning(); }
 
-/* ---------- Vue mobile jour-par-jour ---------- */
+/* ---------- Vue mobile jour-par-jour + liste semaine (bouton Semaine) ---------- */
 let mobileDayIdx = (new Date().getDay() + 6) % 7;
 const mobileTodayIdx = () => (new Date().getDay() + 6) % 7;
+const mdMode = () => (state.settings.mobileView === 'week' ? 'week' : 'day');
 
 function renderMobileView() {
   const wrap = $('#mobileDayView');
   if (!wrap) return;
+  const today = todayISO();
+
+  if (mdMode() === 'week') {
+    /* ---- Liste verticale des 7 jours ---- */
+    let daysHtml = '';
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(weekStart, i), iso = toISO(d);
+      const past = iso < today, isToday = iso === today;
+
+      const dayShifts = [];
+      state.establishments.forEach(est => {
+        state.shifts.filter(s => s.estId === est.id && s.date === iso).forEach(s => dayShifts.push({ s, est }));
+      });
+      dayShifts.sort((a, b) => mins(a.s.start) - mins(b.s.start));
+      const abs = state.absences.filter(a => a.start <= iso && iso <= a.end);
+
+      let cards = abs.map(a => {
+        const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
+        return `<div class="md-absence ${past ? 'past' : ''}" data-absence="1" style="border-color:${meta.color}55;color:${meta.color};background:${meta.color}14">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
+      }).join('');
+      cards += dayShifts.map(({ s, est }) => `
+        <button type="button" class="md-shift ${past ? 'past' : ''}" data-id="${s.id}" style="--c:${est.color}" title="${esc(s.note || '')}">
+          <span class="md-bar"></span>
+          <span class="md-row"><span class="md-time">${esc(s.start)} – ${esc(s.end)}</span><span class="md-estname">${esc(est.name)}</span><span class="md-dur">${fmtDur(durMinutes(s.start, s.end))}</span></span>
+          <span class="md-label">${esc(s.label || 'SHIFT')}</span>
+        </button>`).join('');
+      if (!cards) cards = `<button type="button" class="md-nochip" data-date="${iso}">ⓘ Aucun shift prévu</button>`;
+
+      daysHtml += `<div class="md-dayblock">
+        <div class="md-dayhead ${isToday ? 'today' : ''}">
+          <span class="md-hline"></span>
+          <span class="md-dhead">${DAYS_SHORT[i]} <b class="md-dnum">${d.getDate()}</b> ${MONTHS[d.getMonth()]}</span>
+          <span class="md-hline"></span>
+        </div>
+        <div class="md-cards">${cards}</div>
+      </div>`;
+    }
+
+    const sync = state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello">⟳ Sync</button>' : '';
+    wrap.innerHTML = `
+      <div class="md-date">${sync}<b>Semaine ${isoWeek(weekStart)}</b> · ${esc(fmtRange(weekStart))}</div>
+      <div class="md-days">${daysHtml}</div>`;
+    return;
+  }
+
+  /* ---- Vue jour (par défaut) ---- */
   const day = addDays(weekStart, mobileDayIdx);
   const iso = toISO(day);
-  const today = todayISO();
 
   let body = '';
   if (!state.establishments.length) {
@@ -909,10 +957,14 @@ function init() {
     if (cell) openShiftModal(null, { estId: cell.dataset.est, date: cell.dataset.date });
   });
 
-  /* Vue mobile : clics (shifts, absences, établissements) + swipe jour précédent/suivant */
+  /* Vue mobile : clics + swipe (jour en vue Jour, semaine en vue Semaine) */
   const mdView = $('#mobileDayView');
   mdView.addEventListener('click', e => {
     if (e.target.closest('.md-sync')) { $('#syncIcsBtn')?.click(); return; }
+    const wsh = e.target.closest('.md-shift');
+    if (wsh) { openShiftModal(wsh.dataset.id); return; }
+    const chip = e.target.closest('.md-nochip');
+    if (chip) { openShiftModal(null, { date: chip.dataset.date }); return; }
     const sh = e.target.closest('.shift');
     if (sh) { openShiftModal(sh.dataset.id); return; }
     if (e.target.closest('.md-absence')) { switchView('absences'); return; }
@@ -933,10 +985,18 @@ function init() {
     const dy = e.changedTouches[0].clientY - mdTouch.y;
     mdTouch = null;
     if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      if (mdMode() === 'week') { changeWeek(dx < 0 ? 1 : -1); return; }
       const next = Math.min(6, Math.max(0, mobileDayIdx + (dx < 0 ? 1 : -1)));
       if (next !== mobileDayIdx) { mobileDayIdx = next; renderMobileView(); }
     }
   }, { passive: true });
+
+  /* Bouton Semaine/Jour (mobile) : bascule entre la vue jour et la liste des 7 jours */
+  $('#mdWeekBtn').addEventListener('click', () => {
+    state.settings.mobileView = mdMode() === 'week' ? 'day' : 'week';
+    if (mdMode() === 'day') mobileDayIdx = toISO(weekStart) === todayISO() ? mobileTodayIdx() : 0;
+    save(); renderPlanning();
+  });
 
   /* Vue établissements : liste + ajout */
   $('#estViewList').addEventListener('click', e => {

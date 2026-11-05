@@ -350,6 +350,7 @@ dialog::backdrop{ background:rgba(4,8,14,.65); backdrop-filter:blur(3px) }
 
 /* ---------- Vue mobile « semaine » (façon Skello, masquée sur desktop, visible < 720px) ---------- */
 .mobile-day{ display:none }
+.md-week-toggle{ display:none }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 900px){
@@ -405,7 +406,8 @@ dialog::backdrop{ background:rgba(4,8,14,.65); backdrop-filter:blur(3px) }
   .weekbar-left{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; width:100% }
   .week-pill{ padding:9px 13px; font-size:12.5px }
   .week-num{ padding:7px 10px; font-size:11.5px }
-  .weekbar-left input.date-jump{ flex:1 1 150px; width:auto }
+  .weekbar-left input.date-jump{ display:none }
+  .md-week-toggle{ display:inline-flex }
   .weekbar-right{ display:none }
   .icon-btn{ width:40px; height:40px }
   .btn{ padding:10px 13px; font-size:13px }
@@ -451,6 +453,47 @@ dialog::backdrop{ background:rgba(4,8,14,.65); backdrop-filter:blur(3px) }
     padding:36px 16px; text-align:center; color:var(--muted); cursor:pointer;
   }
   .md-add{ width:100%; justify-content:center; padding:13px; margin-top:2px }
+
+  /* --- Liste verticale des 7 jours (bouton Semaine) --- */
+  .md-days{ display:flex; flex-direction:column; padding:2px 0 10px }
+  .md-dayhead{
+    display:flex; align-items:center; gap:12px;
+    margin:15px 2px 10px; color:var(--muted);
+    font-size:13.5px; font-weight:700;
+  }
+  .md-days .md-dayblock:first-child .md-dayhead{ margin-top:6px }
+  .md-hline{ flex:1; height:1.5px; background:var(--border); border-radius:2px }
+  .md-dhead{ text-transform:capitalize; white-space:nowrap; display:flex; align-items:center; gap:7px }
+  .md-dayhead .md-dnum{ font-size:17px; font-weight:800; color:var(--text) }
+  .md-dayhead.today{ color:var(--blue) }
+  .md-dayhead.today .md-hline{ background:var(--blue) }
+  .md-dayhead.today .md-dnum{
+    color:#fff; background:var(--blue);
+    width:34px; height:34px; border-radius:50%;
+    display:grid; place-items:center; font-size:16.5px;
+  }
+  .md-cards{ display:flex; flex-direction:column; gap:8px }
+  .md-shift{
+    position:relative; display:block; width:100%; text-align:left;
+    background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:12px 14px 12px 20px;
+  }
+  .md-shift .md-bar{
+    position:absolute; left:7px; top:9px; bottom:9px; width:5px;
+    border-radius:99px; background:var(--c);
+  }
+  .md-row{ display:flex; align-items:baseline; gap:8px }
+  .md-time{ font-weight:800; font-size:15px; white-space:nowrap }
+  .md-estname{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px; color:var(--text) }
+  .md-dur{ color:var(--muted); font-size:12px; white-space:nowrap }
+  .md-label{ display:block; margin-top:3px; color:var(--muted); font-size:11.5px; letter-spacing:.4px; text-transform:uppercase }
+  .md-shift.past{ opacity:.5 }
+  .md-absence.past{ opacity:.5 }
+  .md-nochip{
+    align-self:center; padding:9px 16px; margin:2px auto 0;
+    background:var(--panel-2); color:var(--muted);
+    border:1px solid var(--border-soft); border-radius:10px; font-size:12.5px;
+  }
   /* --- Résumé --- */
   .summarybar{ gap:10px; padding:12px 14px; margin-top:12px }
   .progress-wrap{ min-width:100% }

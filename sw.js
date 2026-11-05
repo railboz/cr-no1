@@ -9,7 +9,7 @@
    ============================================================ */
 'use strict';
 
-const CACHE = 'creno-v6';
+const CACHE = 'creno-v7';
 const ASSETS = [
   './',
   './index.html',
