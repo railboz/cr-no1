@@ -95,7 +95,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-extension.ps1
 Créno existe aussi en **extension Firefox**, pensée d'abord pour le mobile :
 
 - **Navigation en bas de l'écran** (Planning · Absences · Statistiques · Profil) ;
-- **Mobile** : accueil **« Aujourd'hui »** (swipe pour changer de jour), bascule vers la **vue Semaine** façon Skello (bandeau de semaines défilant + liste des 7 jours, jours passés grisés, aujourd'hui mis en avant, bouton ◎ semaine en cours) ;
+- **Mobile** : vue jour-par-jour (swipe pour changer de jour), barre de navigation semaine compacte en haut (‹ › , « Aujourd'hui », sélecteur de date), bouton ⟳ Sync dans la ligne de date si une URL Skello est enregistrée ;
 - **Modales en bottom-sheet** qui montent du bas de l'écran, zones tactiles larges ;
 - **Synchro Skello 100 % privée** : grâce aux permissions de l'extension, la récupération directe de votre calendrier ICS est autorisée — **aucun relais public, aucune donnée qui transite par un tiers**.
 

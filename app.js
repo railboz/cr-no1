@@ -78,7 +78,7 @@ function blankState() {
     shifts: [],
     absences: [],
     availability: [true, true, true, true, true, false, false],
-    settings: { skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'today' },
+    settings: { skelloUrl: '', lastIcsSync: 0, allowProxy: true },
   };
 }
 function migrate(data) {
@@ -90,7 +90,7 @@ function migrate(data) {
   s.availability = (Array.isArray(data.availability) && data.availability.length === 7)
     ? data.availability.slice()
     : [true, true, true, true, true, false, false];
-  s.settings = Object.assign({ skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'today' }, data.settings || {});
+  s.settings = Object.assign({ skelloUrl: '', lastIcsSync: 0, allowProxy: true }, data.settings || {});
   return s;
 }
 function seedDemo() { /* jeu de démo inspiré du planning Skello, ancré sur la semaine courante */
@@ -289,94 +289,57 @@ function renderSummary() {
 }
 function changeWeek(n) { weekStart = addDays(weekStart, n * 7); renderPlanning(); }
 
-/* ---------- Vue mobile « Aujourd'hui » / « Semaine » (inspiration Skello) ---------- */
-let mdDayCursor = todayISO(); /* la page d'accueil mobile démarre toujours sur aujourd'hui */
-const mdMode = () => (state.settings.mobileView === 'week' ? 'week' : 'day');
+/* ---------- Vue mobile jour-par-jour ---------- */
+let mobileDayIdx = (new Date().getDay() + 6) % 7;
+const mobileTodayIdx = () => (new Date().getDay() + 6) % 7;
 
 function renderMobileView() {
   const wrap = $('#mobileDayView');
   if (!wrap) return;
+  const day = addDays(weekStart, mobileDayIdx);
+  const iso = toISO(day);
   const today = todayISO();
-  const week = mdMode() === 'week';
 
-  /* Bascule Aujourd'hui / Semaine */
-  const toggle = `<div class="md-viewtoggle">
-    <button type="button" class="md-vt ${week ? '' : 'sel'}" data-v="day">Aujourd'hui</button>
-    <button type="button" class="md-vt ${week ? 'sel' : ''}" data-v="week">Semaine</button>
-  </div>`;
-
-  /* Bandeau de choix de la semaine (mode Semaine uniquement) */
-  let strip = '';
-  if (week) {
-    const pills = [];
-    for (const off of [-1, 0, 1]) {
-      const w = addDays(weekStart, off * 7), sun = addDays(w, 6);
-      const label = `${w.getDate()} ${MONTHS[w.getMonth()]} – ${sun.getDate()} ${MONTHS[sun.getMonth()]}`;
-      pills.push(`<button type="button" class="md-week-pill ${off === 0 ? 'sel' : ''}" data-off="${off}">${esc(label)}</button>`);
-    }
-    strip = `
-    <div class="md-weekstrip">
-      <div class="md-weekscroll">${pills.join('')}</div>
-      ${state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello">⟳ Sync</button>' : ''}
-      <button type="button" class="md-todayjump" title="Revenir à la semaine en cours">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/></svg>
-      </button>
-    </div>`;
-  }
-
-  /* Jour courant (mode Aujourd'hui) ou les 7 jours (mode Semaine) */
-  const days = week ? [...Array(7)].map((_, i) => addDays(weekStart, i)) : [fromISO(mdDayCursor)];
-
-  let daysHtml = '';
-  for (const d of days) {
-    const iso = toISO(d);
-    const past = iso < today, isToday = iso === today;
-
-    const dayShifts = [];
-    state.establishments.forEach(est => {
-      state.shifts.filter(s => s.estId === est.id && s.date === iso).forEach(s => dayShifts.push({ s, est }));
-    });
-    dayShifts.sort((a, b) => mins(a.s.start) - mins(b.s.start));
-    const abs = state.absences.filter(a => a.start <= iso && iso <= a.end);
-
-    let cards = abs.map(a => {
-      const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
-      return `<div class="md-absence ${past ? 'past' : ''}" data-absence="1" style="border-color:${meta.color}55;color:${meta.color};background:${meta.color}14">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
-    }).join('');
-    cards += dayShifts.map(({ s, est }) => `
-      <button type="button" class="md-shift ${past ? 'past' : ''}" data-id="${s.id}" style="--c:${est.color}" title="${esc(s.note || '')}">
-        <span class="md-bar"></span>
-        <span class="md-row"><span class="md-time">${esc(s.start)} – ${esc(s.end)}</span><span class="md-estname">${esc(est.name)}</span><span class="md-dur">${fmtDur(durMinutes(s.start, s.end))}</span></span>
-        <span class="md-label">${esc(s.label || 'SHIFT')}</span>
-      </button>`).join('');
-    if (!cards) cards = `<button type="button" class="md-nochip" data-date="${iso}">ⓘ Aucun shift prévu</button>`;
-
-    daysHtml += `<div class="md-dayblock">
-      <div class="md-dayhead ${isToday ? 'today' : ''}">
-        <span class="md-hline"></span>
-        <span class="md-dhead">${DAYS_SHORT[(d.getDay() + 6) % 7]} <b class="md-dnum">${d.getDate()}</b> ${MONTHS[d.getMonth()]}${week ? '' : ` ${d.getFullYear()}`}</span>
-        <span class="md-hline"></span>
-      </div>
-      <div class="md-cards">${cards}</div>
-    </div>`;
-  }
-
-  const fab = `<button type="button" class="md-fab" id="mdAdd" title="Ajouter un shift" aria-label="Ajouter un shift">＋</button>`;
-
+  let body = '';
   if (!state.establishments.length) {
-    wrap.innerHTML = `
-      ${toggle}
-      <div class="md-empty" id="mdNoEst">🏢 Aucun établissement<br><span class="small">Touchez ici pour en ajouter un (menu → Établissements)</span></div>
-      ${fab}`;
+    body = '<div class="md-empty" id="mdNoEst">🏢 Aucun établissement<br><span class="small">Touchez ici pour en ajouter un (menu → Établissements)</span></div>';
   } else {
-    wrap.innerHTML = `${toggle}${strip}<div class="md-days">${daysHtml}</div>${fab}`;
+    state.establishments.forEach(est => {
+      const shifts = state.shifts.filter(s => s.estId === est.id && s.date === iso).sort((a, b) => mins(a.start) - mins(b.start));
+      const abs = state.absences.filter(a => a.start <= iso && iso <= a.end);
+      if (!shifts.length && !abs.length) return;
+      const total = shifts.reduce((t, s) => t + durMinutes(s.start, s.end), 0);
+      body += `<div class="md-est">
+        <div class="md-est-head" data-est="${est.id}">
+          <span class="est-dot" style="background:${est.color}"></span>
+          <span>${esc(est.name)}</span>
+          ${total ? `<span class="md-est-total">${fmtDur(total)}</span>` : ''}
+        </div>
+        ${abs.map(a => {
+          const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
+          return `<div class="md-absence" data-absence="1" style="border-color:${meta.color}55;color:${meta.color};background:${meta.color}14">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
+        }).join('')}
+        ${shifts.map(s => `
+          <button type="button" class="shift" data-id="${s.id}" style="background:linear-gradient(135deg, ${est.color}, ${shade(est.color, -0.3)})" title="${esc(s.note || '')}">
+            <span class="shift-time">${esc(s.start)} – ${esc(s.end)}</span>
+            <span class="shift-dur">${fmtDur(durMinutes(s.start, s.end))}</span>
+            <span class="shift-label">${esc(s.label || 'SHIFT')}</span>
+          </button>`).join('')}
+      </div>`;
+    });
+    if (!body) {
+      body = `<div class="md-empty">😌 Rien de prévu le ${DAYS_LONG[mobileDayIdx]} ${day.getDate()} ${MONTHS[day.getMonth()]}<br><span class="small">Touchez ici pour ajouter un shift</span></div>`;
+    }
   }
 
-  /* Centre le pill de la semaine affichée (scroll du bandeau uniquement) */
-  const stripEl = wrap.querySelector('.md-weekscroll'), sel = wrap.querySelector('.md-week-pill.sel');
-  if (stripEl && sel) stripEl.scrollLeft = Math.max(0, sel.offsetLeft + sel.offsetWidth / 2 - stripEl.clientWidth / 2);
-}
+  /* ⟳ Sync compact dans la ligne de date (uniquement si une URL Skello est enregistrée) */
+  const sync = state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello">⟳ Sync</button>' : '';
 
+  wrap.innerHTML = `
+    <div class="md-date">${sync}<b>${DAYS_LONG[mobileDayIdx]}</b> ${day.getDate()} ${MONTHS[day.getMonth()]} ${day.getFullYear()}${iso === today ? ' · <span class="md-today">aujourd&#39;hui</span>' : ''}</div>
+    <div class="md-list">${body}</div>
+    <button type="button" class="btn primary md-add" id="mdAdd">＋ Ajouter un shift</button>`;
+}
 /* ---------- Modal shift ---------- */
 let editingShiftId = null;
 function fillEstSelect(sel) {
@@ -928,10 +891,10 @@ function init() {
   /* Navigation semaines */
   $('#prevWeek').addEventListener('click', () => changeWeek(-1));
   $('#nextWeek').addEventListener('click', () => changeWeek(1));
-  $('#todayBtn').addEventListener('click', () => { weekStart = startOfWeek(new Date()); renderPlanning(); });
+  $('#todayBtn').addEventListener('click', () => { weekStart = startOfWeek(new Date()); mobileDayIdx = mobileTodayIdx(); renderPlanning(); });
   $('#jumpDate').addEventListener('change', () => {
     const v = $('#jumpDate').value;
-    if (v) { weekStart = startOfWeek(fromISO(v)); renderPlanning(); }
+    if (v) { weekStart = startOfWeek(fromISO(v)); mobileDayIdx = mobileTodayIdx(); renderPlanning(); }
   });
   $('#addShiftBtn').addEventListener('click', () => openShiftModal(null, { date: toISO(weekStart) }));
 
@@ -946,39 +909,23 @@ function init() {
     if (cell) openShiftModal(null, { estId: cell.dataset.est, date: cell.dataset.date });
   });
 
-  /* Vue mobile : bascule Aujourd'hui/Semaine, cartes, FAB + swipe (jour ou semaine) */
+  /* Vue mobile : clics (shifts, absences, établissements) + swipe jour précédent/suivant */
   const mdView = $('#mobileDayView');
   mdView.addEventListener('click', e => {
-    const vt = e.target.closest('.md-vt');
-    if (vt) {
-      state.settings.mobileView = vt.dataset.v;
-      if (vt.dataset.v === 'week') weekStart = startOfWeek(fromISO(mdDayCursor));
-      save(); renderPlanning();
-      return;
-    }
-    const wp = e.target.closest('.md-week-pill');
-    if (wp) { weekStart = addDays(weekStart, Number(wp.dataset.off) * 7); renderPlanning(); return; }
-    if (e.target.closest('.md-todayjump')) { weekStart = startOfWeek(new Date()); renderPlanning(); return; }
     if (e.target.closest('.md-sync')) { $('#syncIcsBtn')?.click(); return; }
-    const sh = e.target.closest('.md-shift');
+    const sh = e.target.closest('.shift');
     if (sh) { openShiftModal(sh.dataset.id); return; }
     if (e.target.closest('.md-absence')) { switchView('absences'); return; }
-    const chip = e.target.closest('.md-nochip');
-    if (chip) { openShiftModal(null, { date: chip.dataset.date }); return; }
+    const head = e.target.closest('.md-est-head');
+    if (head) { openEstModal(head.dataset.est); return; }
     if (e.target.closest('#mdNoEst')) { switchView('establishments'); return; }
-    if (e.target.closest('#mdAdd')) {
-      const isCur = toISO(weekStart) === toISO(startOfWeek(new Date()));
-      openShiftModal(null, {
-        date: mdMode() === 'week' ? (isCur ? todayISO() : toISO(weekStart)) : mdDayCursor,
-      });
+    if (e.target.closest('#mdAdd') || e.target.closest('.md-empty')) {
+      openShiftModal(null, { date: toISO(addDays(weekStart, mobileDayIdx)) });
     }
   });
   let mdTouch = null;
   mdView.addEventListener('touchstart', e => {
-    /* le swipe horizontal navigue les semaines ; on l'ignore s'il démarre dans le bandeau défilant */
-    if (e.touches.length === 1 && !e.target.closest('.md-weekscroll')) {
-      mdTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    }
+    if (e.touches.length === 1) mdTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   }, { passive: true });
   mdView.addEventListener('touchend', e => {
     if (!mdTouch) return;
@@ -986,8 +933,8 @@ function init() {
     const dy = e.changedTouches[0].clientY - mdTouch.y;
     mdTouch = null;
     if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.4) {
-      if (mdMode() === 'week') changeWeek(dx < 0 ? 1 : -1);
-      else { mdDayCursor = toISO(addDays(fromISO(mdDayCursor), dx < 0 ? 1 : -1)); renderPlanning(); }
+      const next = Math.min(6, Math.max(0, mobileDayIdx + (dx < 0 ? 1 : -1)));
+      if (next !== mobileDayIdx) { mobileDayIdx = next; renderMobileView(); }
     }
   }, { passive: true });
 
