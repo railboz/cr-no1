@@ -81,12 +81,31 @@ function blankState() {
     settings: { skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day' },
   };
 }
+const RE_ISO = /^\d{4}-\d{2}-\d{2}$/;
+const RE_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+const RE_COLOR = /^#[0-9a-f]{6}$/i;
+const RE_ID = /^[\w.:-]{1,64}$/;
+const safeId = v => (typeof v === 'string' && RE_ID.test(v)) ? v : uid();
 function migrate(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('format');
   const s = Object.assign(blankState(), data);
   s.profile = Object.assign({ firstName: '', lastName: '', email: '', phone: '', rate: 12.5, objective: 35, refSalary: 0 }, data.profile || {});
-  s.establishments = Array.isArray(data.establishments) ? data.establishments : [];
-  s.shifts = Array.isArray(data.shifts) ? data.shifts : [];
-  s.absences = Array.isArray(data.absences) ? data.absences : [];
+  /* Assainissement : une donnée mal formée (import JSON, ancienne version) ne doit ni planter
+     l'affichage ni injecter du HTML (id / couleur sont insérés dans des attributs). */
+  const isObj = x => x && typeof x === 'object' && !Array.isArray(x);
+  s.establishments = (Array.isArray(data.establishments) ? data.establishments : []).filter(isObj).map((e, i) => ({
+    ...e,
+    id: safeId(e.id),
+    name: String(e.name ?? '').slice(0, 40) || 'ÉTABLISSEMENT',
+    color: RE_COLOR.test(e.color) ? e.color : PALETTE[i % PALETTE.length],
+  }));
+  const estIds = new Set(s.establishments.map(e => e.id));
+  s.shifts = (Array.isArray(data.shifts) ? data.shifts : []).filter(isObj)
+    .filter(x => RE_ISO.test(x.date) && RE_TIME.test(x.start) && RE_TIME.test(x.end) && estIds.has(x.estId))
+    .map(x => ({ ...x, id: safeId(x.id), label: String(x.label ?? ''), note: String(x.note ?? '') }));
+  s.absences = (Array.isArray(data.absences) ? data.absences : []).filter(isObj)
+    .filter(x => RE_ISO.test(x.start) && RE_ISO.test(x.end) && x.end >= x.start)
+    .map(x => ({ ...x, id: safeId(x.id), type: AB_TYPES[x.type] ? x.type : 'Autre', note: String(x.note ?? ''), status: String(x.status || 'Confirmée') }));
   s.availability = (Array.isArray(data.availability) && data.availability.length === 7)
     ? data.availability.slice()
     : [true, true, true, true, true, false, false];
@@ -113,10 +132,17 @@ function load() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return seedDemo();
-    return migrate(JSON.parse(raw));
+    try {
+      return migrate(JSON.parse(raw));
+    } catch (e) {
+      /* Ne jamais écraser des données illisibles : on les met de côté avant de repartir sur une démo */
+      console.error('Créno : données locales illisibles, copie de sauvegarde conservée.', e);
+      try { localStorage.setItem(LS_KEY + '-corrupt-' + Date.now(), raw); } catch (e2) { /* ignore */ }
+      return seedDemo();
+    }
   } catch (e) {
-    console.error('Créno : données locales illisibles, nouvelle démo.', e);
-    return seedDemo();
+    console.error('Créno : stockage local inaccessible.', e);
+    return blankState();
   }
 }
 
@@ -159,6 +185,7 @@ function confirmDialog(title, msg, okLabel = 'Confirmer', danger = true) {
     const ok = $('#cfOk');
     ok.textContent = okLabel;
     ok.className = 'btn ' + (danger ? 'danger' : 'primary');
+    settleConfirm(false);
     cfResolve = res;
     $('#confirmModal').showModal();
   });
@@ -509,7 +536,7 @@ function renderAbsences() {
   }
   empty.classList.add('hidden');
   list.classList.remove('hidden');
-  list.innerHTML = state.absences.slice().sort((a, b) => (a.start < b.start ? -1 : 1)).map(a => {
+  list.innerHTML = state.absences.slice().sort((a, b) => a.start.localeCompare(b.start)).map(a => {
     const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
     const d1 = fromISO(a.start), d2 = fromISO(a.end);
     const dates = a.start === a.end
@@ -533,7 +560,8 @@ function renderAbsences() {
 /* ---------- Statistiques ---------- */
 function renderStats() {
   const now = new Date();
-  const wk = minutesInWeek(weekStart);
+  const curWeek = startOfWeek(now);
+  const wk = minutesInWeek(curWeek);
   let mMin = 0, mCount = 0;
   const mPrefix = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`;
   state.shifts.forEach(s => {
@@ -559,7 +587,7 @@ function renderStats() {
   }
 
   /* 8 dernières semaines */
-  const start = addDays(weekStart, -7 * 7);
+  const start = addDays(curWeek, -7 * 7);
   const weeks = [];
   for (let i = 0; i < 8; i++) {
     const mon = addDays(start, i * 7);
@@ -568,7 +596,7 @@ function renderStats() {
   const max = Math.max(...weeks.map(w => w.min), 60);
   $('#barsWeeks').innerHTML = weeks.map(w => {
     const pct = Math.round(w.min / max * 100);
-    const cur = toISO(w.mon) === toISO(weekStart);
+    const cur = toISO(w.mon) === toISO(curWeek);
     return `<div class="bar-col">
       <div class="bar-zone"><div class="bar ${cur ? 'cur' : ''}" style="height:${Math.max(3, pct)}%"><span class="bar-tip">${w.min ? fmtDur(w.min) : ''}</span></div></div>
       <span class="bar-x">S${isoWeek(w.mon)}</span>
@@ -576,8 +604,8 @@ function renderStats() {
   }).join('');
 
   /* 30 derniers jours */
-  const from = toISO(addDays(now, -29));
-  const recent = state.shifts.filter(s => s.date >= from);
+  const from = toISO(addDays(now, -29)), upto = toISO(now);
+  const recent = state.shifts.filter(s => s.date >= from && s.date <= upto);
 
   const byEst = state.establishments.map(est => ({
     name: est.name, color: est.color,
@@ -780,9 +808,11 @@ async function applyICSImport(text, opts = {}) {
 
   const stats = { addedS, addedA, dup, ignored, est: newEst.length };
   save();
-  if ((addedS || addedA) && minDate) weekStart = startOfWeek(fromISO(minDate));
+  const manual = opts.confirm !== false; /* import manuel : on affiche les nouveautés ; synchro : on reste où on est */
+  if (manual && (addedS || addedA) && minDate) weekStart = startOfWeek(fromISO(minDate));
   if ($('#icsModal').open) $('#icsModal').close();
-  if (addedS || addedA) switchView('planning');
+  if (manual && (addedS || addedA)) switchView('planning');
+  else render();
   if (opts.toast !== false) {
     toast(`Import Skello : ${addedS} shift(s), ${addedA} absence(s)${dup ? ` · ${dup} doublon(s) ignoré(s)` : ''} ✓`);
   }
@@ -850,8 +880,10 @@ async function syncSkello(opts = {}) {
     return;
   }
 
-  const stats = await applyICSImport(txt, { confirm: false, toast: !opts.silent });
-  setSyncBtn('idle');
+  let stats = null;
+  try { stats = await applyICSImport(txt, { confirm: false, toast: !opts.silent }); }
+  catch (e) { console.error('Créno : échec import ICS', e); toast('Import du calendrier impossible', 'error'); }
+  finally { setSyncBtn('idle'); }
   if (!stats) return;
   state.settings.lastIcsSync = Date.now();
   save();
@@ -867,8 +899,10 @@ function exportJSON() {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `creno-export-${todayISO()}.json`;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(a.href);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   toast('Export téléchargé ✓');
 }
 function importJSON(file) {
@@ -942,7 +976,7 @@ function init() {
   $('#todayBtn').addEventListener('click', () => { weekStart = startOfWeek(new Date()); mobileDayIdx = mobileTodayIdx(); renderPlanning(); });
   $('#jumpDate').addEventListener('change', () => {
     const v = $('#jumpDate').value;
-    if (v) { weekStart = startOfWeek(fromISO(v)); mobileDayIdx = mobileTodayIdx(); renderPlanning(); }
+    if (v) { const d = fromISO(v); weekStart = startOfWeek(d); mobileDayIdx = (d.getDay() + 6) % 7; renderPlanning(); }
   });
   $('#addShiftBtn').addEventListener('click', () => openShiftModal(null, { date: toISO(weekStart) }));
 
@@ -994,7 +1028,12 @@ function init() {
   /* Bouton Semaine/Jour (mobile) : bascule entre la vue jour et la liste des 7 jours */
   $('#mdWeekBtn').addEventListener('click', () => {
     state.settings.mobileView = mdMode() === 'week' ? 'day' : 'week';
-    if (mdMode() === 'day') mobileDayIdx = toISO(weekStart) === todayISO() ? mobileTodayIdx() : 0;
+    if (mdMode() === 'day') {
+      /* Retour en vue jour : toujours se replacer sur aujourd'hui,
+         même si on consultait une autre semaine en vue Semaine */
+      weekStart = startOfWeek(new Date());
+      mobileDayIdx = mobileTodayIdx();
+    }
     save(); renderPlanning();
   });
 
@@ -1043,10 +1082,12 @@ function init() {
     const start = $('#shStart').value, end = $('#shEnd').value;
     if (!estId) { toast('Sélectionnez un établissement', 'error'); return; }
     if (!date || !start || !end) { toast('Champs incomplets', 'error'); return; }
+    if (start === end) { toast('Le début et la fin sont identiques', 'error'); return; }
     const data = { estId, date, start, end, label: $('#shLabel').value.trim(), note: $('#shNote').value.trim() };
     if (editingShiftId) {
       const i = state.shifts.findIndex(x => x.id === editingShiftId);
       if (i > -1) state.shifts[i] = { ...state.shifts[i], ...data };
+      else state.shifts.push({ id: uid(), ...data });
       toast('Shift modifié ✓');
     } else {
       state.shifts.push({ id: uid(), ...data });
@@ -1127,7 +1168,7 @@ function init() {
     e.preventDefault();
     const est = state.establishments.find(x => x.id === editingEstId);
     if (!est) return;
-    est.name = $('#estName').value.trim() || est.name;
+    est.name = $('#estName').value.trim().toUpperCase() || est.name;
     est.color = estModalColor;
     save();
     $('#estModal').close();
@@ -1172,7 +1213,10 @@ function init() {
       profileTimer = setTimeout(save, 600);
     });
   });
-  $('#profileSave').addEventListener('click', () => { save(); toast('Profil enregistré ✓'); });
+  const flushProfile = () => { if (profileTimer) { clearTimeout(profileTimer); profileTimer = null; save(); } };
+  window.addEventListener('pagehide', flushProfile);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushProfile(); });
+  $('#profileSave').addEventListener('click', () => { clearTimeout(profileTimer); profileTimer = null; save(); toast('Profil enregistré ✓'); });
   $('#resetBtn').addEventListener('click', resetData);
   $('#availChips').addEventListener('click', e => {
     const c = e.target.closest('.chip');
@@ -1245,6 +1289,7 @@ function init() {
     if (document.querySelector('dialog[open]')) return;
     if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
     if (currentView !== 'planning') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'ArrowLeft') changeWeek(-1);
     else if (e.key === 'ArrowRight') changeWeek(1);
     else if (e.key.toLowerCase() === 'n') { e.preventDefault(); openShiftModal(null, { date: todayISO() }); }

@@ -3,13 +3,15 @@
    Stratégie :
    - pré-cache du shell de l'app à l'installation ;
    - navigations : réseau d'abord (mises à jour immédiates), cache en secours ;
-   - autres ressources same-origin : cache d'abord ;
+   - autres ressources same-origin : cache d'abord + mise à jour en arrière-plan
+     (les modifications d'app.js / styles.css sont donc prises au lancement suivant) ;
+   - seules les réponses valides (2xx) sont mises en cache ;
    - requêtes externes (api.skello.io, relais…) : jamais interceptées.
    Pour publier une mise à jour de l'app : incrémentez CACHE.
    ============================================================ */
 'use strict';
 
-const CACHE = 'creno-v7';
+const CACHE = 'creno-v9';
 const ASSETS = [
   './',
   './index.html',
@@ -49,8 +51,10 @@ self.addEventListener('fetch', e => {
     e.respondWith(
       fetch(req)
         .then(res => {
-          const cp = res.clone();
-          caches.open(CACHE).then(c => c.put('./index.html', cp));
+          if (res.ok) {
+            const cp = res.clone();
+            caches.open(CACHE).then(c => c.put('./index.html', cp));
+          }
           return res;
         })
         .catch(() => caches.match('./index.html'))
@@ -61,12 +65,15 @@ self.addEventListener('fetch', e => {
   /* Ressources locales : cache d'abord */
   e.respondWith(
     caches.match(req).then(hit => {
-      if (hit) return hit;
-      return fetch(req).then(res => {
-        const cp = res.clone();
-        caches.open(CACHE).then(c => c.put(req, cp));
+      const net = fetch(req).then(res => {
+        if (res.ok) {
+          const cp = res.clone();
+          caches.open(CACHE).then(c => c.put(req, cp));
+        }
         return res;
       });
+      if (hit) { net.catch(() => {}); return hit; } /* revalidation silencieuse */
+      return net;
     })
   );
 });
