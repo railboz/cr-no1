@@ -860,11 +860,30 @@ function setSyncBtn(mode) {
 
 /* Récupère l'ICS depuis l'URL enregistrée : direct, puis relais publics si bloqué */
 let icsSyncing = false;
+let icsAbort = null;        /* permet d'annuler la synchro quand l'app passe en arrière-plan */
+let icsAbortReason = '';
+
+/* fetch avec délai maximum, interruptible par un signal extérieur.
+   Évite qu'une requête bloquée garde la radio du téléphone active. */
+function fetchBounded(url, ms, outer) {
+  const ctrl = new AbortController();
+  const relay = () => ctrl.abort();
+  if (outer) outer.addEventListener('abort', relay, { once: true });
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { redirect: 'follow', signal: ctrl.signal }).finally(() => {
+    clearTimeout(timer);
+    if (outer) outer.removeEventListener('abort', relay);
+  });
+}
+
 async function syncSkello(opts = {}) {
   const url = (state.settings.skelloUrl || '').trim();
   if (!url) { openIcsModal(); return; }
   if (icsSyncing) return;
   icsSyncing = true;
+  icsAbortReason = '';
+  const ctrl = new AbortController();
+  icsAbort = ctrl;
   $('#icsSyncNowBtn').disabled = true;
   setSyncBtn('busy');
   if (!opts.silent) toast('Synchronisation avec Skello…');
@@ -879,8 +898,9 @@ async function syncSkello(opts = {}) {
 
   let txt = null, via = null;
   for (const r of routes) {
+    if (ctrl.signal.aborted) break;
     try {
-      const res = await fetch(r.url, { redirect: 'follow', signal: AbortSignal.timeout(15000) });
+      const res = await fetchBounded(r.url, 12000, ctrl.signal);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const body = await res.text();
       if (!/BEGIN:VCALENDAR|BEGIN:VEVENT/i.test(body)) throw new Error('format');
@@ -889,12 +909,16 @@ async function syncSkello(opts = {}) {
       break;
     } catch (e) { /* route suivante */ }
   }
+  const abortedByHide = icsAbortReason === 'hidden' || ctrl.signal.aborted;
+  if (icsAbort === ctrl) icsAbort = null;
+  icsAbortReason = '';
   icsSyncing = false;
   $('#icsSyncNowBtn').disabled = false;
 
   if (!txt) {
     setSyncBtn('idle');
-    toast('Récupération impossible (hors-ligne, CORS ou URL invalide). Le fichier .ics reste la méthode 100 % fiable.', 'error');
+    /* App mise en arrière-plan : on abandonne sans alerter, on réessaiera au retour */
+    if (!abortedByHide) toast('Récupération impossible (hors-ligne, CORS ou URL invalide). Le fichier .ics reste la méthode 100 % fiable.', 'error');
     return;
   }
 
@@ -1316,10 +1340,22 @@ function init() {
     else if (e.key.toLowerCase() === 'n') { e.preventDefault(); openShiftModal(null, { date: todayISO() }); }
   });
 
-  /* Synchro Skello automatique au démarrage (1 fois toutes les 12 h) */
-  if ((state.settings.skelloUrl || '').trim() && Date.now() - (state.settings.lastIcsSync || 0) > 12 * 3600 * 1000) {
-    setTimeout(() => syncSkello({ silent: true }), 800);
+  /* Synchro Skello automatique (1 fois toutes les 12 h).
+     Uniquement au premier plan et en ligne : rien ne tourne en arrière-plan. */
+  function autoSyncIfDue() {
+    const url = (state.settings.skelloUrl || '').trim();
+    if (!url) return;
+    if (Date.now() - (state.settings.lastIcsSync || 0) <= 12 * 3600 * 1000) return;
+    if (document.visibilityState !== 'visible' || navigator.onLine === false) return;
+    syncSkello({ silent: true });
   }
+  setTimeout(autoSyncIfDue, 1200);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') { autoSyncIfDue(); return; }
+    /* Arrière-plan : on coupe immédiatement toute requête en cours */
+    if (icsAbort) { icsAbortReason = 'hidden'; icsAbort.abort(); }
+  });
+  window.addEventListener('online', autoSyncIfDue);
 
   render();
 }

@@ -11,7 +11,7 @@
    ============================================================ */
 'use strict';
 
-const CACHE = 'creno-v10';
+const CACHE = 'creno-v11';
 const ASSETS = [
   './',
   './index.html',
@@ -46,34 +46,46 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return; /* Skello / relais : direct */
 
-  /* Navigation : réseau d'abord, page en cache si hors-ligne */
+  /* Navigation : réseau d'abord (délai court : pas de radio bloquée), page en cache si hors-ligne */
   if (req.mode === 'navigate') {
-    e.respondWith(
-      fetch(req)
-        .then(res => {
-          if (res.ok) {
-            const cp = res.clone();
-            caches.open(CACHE).then(c => c.put('./index.html', cp));
-          }
-          return res;
-        })
-        .catch(() => caches.match('./index.html'))
-    );
+    e.respondWith((async () => {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 4000);
+        const res = await fetch(req, { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (res.ok) {
+          const cp = res.clone();
+          caches.open(CACHE).then(c => c.put('./index.html', cp));
+        }
+        return res;
+      } catch (e) {
+        return (await caches.match('./index.html')) || Response.error();
+      }
+    })());
     return;
   }
 
-  /* Ressources locales : cache d'abord */
+  /* Ressources locales : cache d'abord, revalidation silencieuse si en ligne */
   e.respondWith(
     caches.match(req).then(hit => {
-      const net = fetch(req).then(res => {
+      if (hit) {
+        if (navigator.onLine === false) return hit; /* hors-ligne : ne pas réveiller la radio */
+        fetch(req).then(res => {
+          if (res.ok) {
+            const cp = res.clone();
+            caches.open(CACHE).then(c => c.put(req, cp));
+          }
+        }).catch(() => {});
+        return hit;
+      }
+      return fetch(req).then(res => {
         if (res.ok) {
           const cp = res.clone();
           caches.open(CACHE).then(c => c.put(req, cp));
         }
         return res;
       });
-      if (hit) { net.catch(() => {}); return hit; } /* revalidation silencieuse */
-      return net;
     })
   );
 });

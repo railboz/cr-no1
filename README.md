@@ -75,6 +75,19 @@ Créno apparaît avec l'icône calendrier dans vos applications, s'ouvre en plei
 
 > 💡 Les données restent **100 % locales** sur le téléphone (localStorage). Pensez à **⬇️ Exporter (JSON)** de temps en temps comme sauvegarde — l'export est compatible entre la version web, la PWA et l'extension Firefox.
 
+### 🔋 Batterie & arrière-plan (Android)
+
+Créno ne fait **rien tourner en arrière-plan** : aucun minuteur, aucun suivi de position, aucune notification, aucune synchronisation périodique. La synchro Skello (si une URL est enregistrée) ne se lance qu'à l'ouverture, **au premier plan et en ligne** ; toute requête en cours est annulée dès que l'app passe en arrière-plan.
+
+Si Android affiche malgré tout une consommation en arrière-plan :
+
+1. **Paramètres → Applications → Créno → Batterie → « Restreindre »** (aucune fonction de l'app n'en dépend) ;
+2. balayez l'app hors des applications récentes après usage ;
+3. vérifiez que la consommation ne vient pas de Chrome/Firefox lui-même (mises à jour de PWA) ;
+4. désinstallez les anciennes installations de test (les données sont liées à l'URL).
+
+Sur mobile, les effets graphiques coûteux (fond fixe, flou GPU) sont désactivés automatiquement pour préserver la batterie.
+
 ### Variantes d'installation
 
 - **Sans héberger** : servez le dossier depuis votre PC (`serve.ps1`) — mais l'app ne sera accessible que si le PC est allumé, et l'installation PWA complète exige HTTPS.
