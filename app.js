@@ -316,7 +316,12 @@ function renderSummary() {
     <div class="sum-item"><span class="sum-num sum-money">${fmtEur(pay)}</span><span>estimés · ${rate.toLocaleString('fr-FR')} €/h</span></div>
     ${ws.length === 0 ? '<div class="progress-label">💡 Cliquez sur une case pour créer un shift</div>' : ''}`;
 }
-function changeWeek(n) { weekStart = addDays(weekStart, n * 7); renderPlanning(); }
+function changeWeek(n) {
+  weekStart = addDays(weekStart, n * 7);
+  /* Changement de semaine : en vue jour, on repart toujours du lundi */
+  if (mdMode() === 'day') { mobileDayIdx = 0; mdSlideDir = n; }
+  renderPlanning();
+}
 
 /* ---------- Vue mobile jour-par-jour + liste semaine (bouton Semaine) ---------- */
 let mobileDayIdx = (new Date().getDay() + 6) % 7;
