@@ -1,13 +1,27 @@
 //! CORS allowlist.
 //!
-//! The relay is called from three kinds of origins only:
-//! * `null` — the PWA opened from `file://`,
+//! The relay is called from these origins only:
+//! * `null` — the PWA opened from `file://`, **opt-in** through
+//!   `CRENO_ALLOW_FILE_ORIGIN=1`,
 //! * `moz-extension://<uuid>` — the browser-extension build, opt-in,
 //! * `http://localhost:<port>` / `http://127.0.0.1:<port>` — local dev,
 //! * plus exact origins explicitly listed in `CRENO_ALLOWED_ORIGINS`.
 //!
 //! `*` is never sent: the relay answers with the caller's own origin, and only
 //! when that origin is allowlisted.
+//!
+//! # Why `null` is off by default
+//!
+//! `Origin: null` is not "the local file": it is also what *any* sandboxed
+//! iframe (or any `data:`/`blob:` document) of *any* site sends. Granting it
+//! unconditionally would let one `<iframe sandbox>` on a hostile page drive the
+//! relay with the visitor's IP and read the calendar back, which makes the
+//! allowlist moot. The `file://` use case is real but narrow, so it is a
+//! documented switch (`CRENO_ALLOW_FILE_ORIGIN=1`), not a default.
+//!
+//! A refused origin is never answered with a CORS error status: the relay
+//! serves the request and simply omits `Access-Control-Allow-Origin`, and the
+//! browser is what blocks the read.
 
 use std::sync::Arc;
 
@@ -40,7 +54,9 @@ pub fn origin_allowed(origin: &str, cfg: &Config) -> bool {
         return false;
     }
     if origin == NULL_ORIGIN {
-        return true;
+        // Opt-in: see the module docs. Refused by default, because any
+        // sandboxed iframe of any site is `null` too.
+        return cfg.allow_file_origin;
     }
 
     let lower = origin.to_ascii_lowercase();
@@ -161,15 +177,68 @@ mod tests {
             rate_limit_per_minute: 30,
             rate_burst: 10,
             allow_extension: false,
+            allow_file_origin: false,
             extra_origins: Vec::new(),
         }
     }
 
     #[test]
-    fn file_origin_is_allowed() {
-        assert!(origin_allowed("null", &cfg()));
-        assert!(!origin_allowed("Null", &cfg()));
-        assert!(!origin_allowed("", &cfg()));
+    fn file_origin_is_opt_in() {
+        let mut cfg = cfg();
+        assert!(
+            !origin_allowed("null", &cfg),
+            "`Origin: null` must be refused by default: any sandboxed iframe sends it"
+        );
+
+        cfg.allow_file_origin = true;
+        assert!(origin_allowed("null", &cfg));
+
+        // The switch is exact-match only: not a case-insensitive family.
+        assert!(!origin_allowed("Null", &cfg));
+        assert!(!origin_allowed("NULL", &cfg));
+        assert!(!origin_allowed("", &cfg));
+        assert!(!origin_allowed("file://", &cfg));
+        assert!(!origin_allowed("file:///home/user/index.html", &cfg));
+    }
+
+    #[tokio::test]
+    async fn a_refused_origin_gets_no_allow_origin_header() {
+        let headers = cors_headers_for(Some("null"), &cfg()).await;
+        assert!(
+            headers.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none(),
+            "a refused origin must never receive Access-Control-Allow-Origin"
+        );
+        assert_eq!(
+            headers.get(header::VARY).and_then(|v| v.to_str().ok()),
+            Some("Origin"),
+            "Vary: Origin is always sent, even on a refusal"
+        );
+
+        let mut cfg = cfg();
+        cfg.allow_file_origin = true;
+        let headers = cors_headers_for(Some("null"), &cfg).await;
+        assert_eq!(
+            headers
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|v| v.to_str().ok()),
+            Some("null")
+        );
+    }
+
+    /// Runs the real middleware once and returns the response headers.
+    async fn cors_headers_for(origin: Option<&str>, cfg: &Config) -> HeaderMap {
+        use tower::ServiceExt as _;
+
+        let request = Request::builder()
+            .uri("/healthz")
+            .header(header::ORIGIN, origin.unwrap_or(""))
+            .body(axum::body::Body::empty())
+            .expect("request builds");
+        let response = crate::app(crate::AppState::new(cfg.clone()))
+            .oneshot(request)
+            .await
+            .expect("infallible");
+        response.headers().clone()
     }
 
     #[test]

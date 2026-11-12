@@ -24,6 +24,8 @@ pub const ENV_TIMEOUT_SECS: &str = "CRENO_TIMEOUT_SECS";
 pub const ENV_RATE_LIMIT: &str = "CRENO_RATE_LIMIT";
 /// Environment variable allowing `moz-extension://` origins.
 pub const ENV_ALLOW_EXTENSION: &str = "CRENO_ALLOW_EXTENSION";
+/// Environment variable allowing the `null` origin (`file://` documents).
+pub const ENV_ALLOW_FILE_ORIGIN: &str = "CRENO_ALLOW_FILE_ORIGIN";
 /// Environment variable holding additional exact origins.
 pub const ENV_ALLOWED_ORIGINS: &str = "CRENO_ALLOWED_ORIGINS";
 
@@ -69,6 +71,13 @@ pub struct Config {
     pub rate_burst: u32,
     /// Whether `moz-extension://` origins are granted CORS access.
     pub allow_extension: bool,
+    /// Whether the `null` origin (`file://` documents) is granted CORS access.
+    ///
+    /// Off by default: `Origin: null` is what *any* sandboxed iframe of *any*
+    /// site sends, so granting it would let a random page drain the relay's
+    /// token-bearing fetch. It only makes sense for the PWA opened straight from
+    /// `index.html` on `file://`.
+    pub allow_file_origin: bool,
     /// Additional exact origins granted CORS access.
     pub extra_origins: Vec<String>,
 }
@@ -83,6 +92,7 @@ impl Default for Config {
             rate_limit_per_minute: DEFAULT_RATE_LIMIT,
             rate_burst: RATE_BURST,
             allow_extension: false,
+            allow_file_origin: false,
             extra_origins: Vec::new(),
         }
     }
@@ -112,6 +122,9 @@ pub enum ConfigError {
     /// `CRENO_ALLOW_EXTENSION` is not a boolean.
     #[error("CRENO_ALLOW_EXTENSION must be 0 or 1")]
     AllowExtension,
+    /// `CRENO_ALLOW_FILE_ORIGIN` is not a boolean.
+    #[error("CRENO_ALLOW_FILE_ORIGIN must be 0 or 1")]
+    AllowFileOrigin,
     /// `CRENO_ALLOWED_ORIGINS` contains a malformed origin.
     #[error(
         "CRENO_ALLOWED_ORIGINS must be a comma-separated list of exact http(s) origins \
@@ -188,6 +201,11 @@ impl Config {
             None => false,
         };
 
+        let allow_file_origin = match read(ENV_ALLOW_FILE_ORIGIN) {
+            Some(raw) => parse_bool(&raw).ok_or(ConfigError::AllowFileOrigin)?,
+            None => false,
+        };
+
         let extra_origins = match read(ENV_ALLOWED_ORIGINS) {
             Some(raw) => parse_origins(&raw)?,
             None => Vec::new(),
@@ -201,6 +219,7 @@ impl Config {
             rate_limit_per_minute,
             rate_burst: RATE_BURST,
             allow_extension,
+            allow_file_origin,
             extra_origins,
         })
     }
@@ -243,8 +262,13 @@ fn parse_hosts(raw: &str) -> Result<Vec<String>, ConfigError> {
     Ok(hosts)
 }
 
-/// A host suffix is a bare DNS name: lowercase labels, no scheme, no port, no
-/// path, no wildcard, no leading dash.
+/// A host suffix is a bare DNS name: at least two lowercase labels, no scheme,
+/// no port, no path, no wildcard, no leading dash, no empty label.
+///
+/// The two-label minimum is the whole point of the allowlist: a bare TLD such as
+/// `io` would accept *every* public host under it, i.e. turn the relay into an
+/// open proxy (and `com`, `fr`, … are one entry away from the same mistake). A
+/// single-label name is never a calendar host.
 fn is_host_suffix(host: &str) -> bool {
     if host.is_empty() || host.len() > 253 {
         return false;
@@ -252,7 +276,11 @@ fn is_host_suffix(host: &str) -> bool {
     if host.bytes().any(|b| !b.is_ascii()) {
         return false;
     }
-    host.split('.').all(|label| {
+    let labels: Vec<&str> = host.split('.').collect();
+    if labels.len() < 2 {
+        return false;
+    }
+    labels.iter().all(|label| {
         !label.is_empty()
             && label.len() <= 63
             && !label.starts_with('-')
@@ -318,6 +346,10 @@ mod tests {
         assert_eq!(config.rate_limit_per_minute, 30);
         assert_eq!(config.rate_burst, 10);
         assert!(!config.allow_extension);
+        assert!(
+            !config.allow_file_origin,
+            "`Origin: null` must be refused unless CRENO_ALLOW_FILE_ORIGIN=1"
+        );
         assert!(config.extra_origins.is_empty());
     }
 
@@ -347,6 +379,7 @@ mod tests {
             (ENV_TIMEOUT_SECS, "3"),
             (ENV_RATE_LIMIT, "7"),
             (ENV_ALLOW_EXTENSION, "1"),
+            (ENV_ALLOW_FILE_ORIGIN, "1"),
             (ENV_ALLOWED_ORIGINS, "https://app.example.fr"),
         ])
         .expect("valid configuration");
@@ -356,6 +389,7 @@ mod tests {
         assert_eq!(config.timeout, Duration::from_secs(3));
         assert_eq!(config.rate_limit_per_minute, 7);
         assert!(config.allow_extension);
+        assert!(config.allow_file_origin);
         assert_eq!(config.extra_origins, vec!["https://app.example.fr"]);
     }
 
@@ -386,6 +420,14 @@ mod tests {
             "-bad.example.com",
             "bad-.example.com",
             "a..b",
+            // A bare TLD would allowlist every public host under it, i.e. turn
+            // the relay into an open proxy.
+            "io",
+            "com",
+            "fr",
+            "localhost",
+            "example.com:443",
+            ".io",
         ] {
             assert_eq!(
                 cfg(&[(ENV_ALLOWED_HOSTS, raw)]),
@@ -435,6 +477,52 @@ mod tests {
         assert_eq!(
             cfg(&[(ENV_RATE_LIMIT, "100001")]),
             Err(ConfigError::RateLimit)
+        );
+    }
+
+    #[test]
+    fn two_label_entries_are_the_shortest_accepted_suffix() {
+        // The boundary, stated once: one label is refused, two are accepted.
+        assert_eq!(
+            cfg(&[(ENV_ALLOWED_HOSTS, "io")]),
+            Err(ConfigError::AllowedHosts)
+        );
+        let config = cfg(&[(ENV_ALLOWED_HOSTS, "skello.io")]).expect("two labels");
+        assert_eq!(config.allowed_hosts, vec!["skello.io".to_string()]);
+        // Deep names stay fine.
+        let config = cfg(&[(ENV_ALLOWED_HOSTS, "eu.api.skello.io")]).expect("three labels");
+        assert_eq!(config.allowed_hosts, vec!["eu.api.skello.io".to_string()]);
+        // And the failure names the variable only, never the value.
+        let message = ConfigError::AllowedHosts.to_string();
+        assert!(message.contains(ENV_ALLOWED_HOSTS));
+        assert!(!message.contains("io"));
+    }
+
+    #[test]
+    fn file_origin_flag_is_opt_in() {
+        for raw in ["1", "true", "yes", "on"] {
+            assert!(
+                cfg(&[(ENV_ALLOW_FILE_ORIGIN, raw)])
+                    .expect("valid")
+                    .allow_file_origin,
+                "{raw} should enable the null origin"
+            );
+        }
+        for raw in ["0", "false", "no", "off"] {
+            assert!(
+                !cfg(&[(ENV_ALLOW_FILE_ORIGIN, raw)])
+                    .expect("valid")
+                    .allow_file_origin,
+                "{raw} should keep the null origin refused"
+            );
+        }
+        assert_eq!(
+            cfg(&[(ENV_ALLOW_FILE_ORIGIN, "maybe")]),
+            Err(ConfigError::AllowFileOrigin)
+        );
+        assert_eq!(
+            ConfigError::AllowFileOrigin.to_string(),
+            "CRENO_ALLOW_FILE_ORIGIN must be 0 or 1"
         );
     }
 
