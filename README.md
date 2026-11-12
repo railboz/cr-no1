@@ -1,6 +1,6 @@
 # 🗓️ Créno — votre planning, simplement
 
-Alternative légère et 100 % locale à Skello, en HTML/CSS/JS pur. Aucun serveur, aucune dépendance : ouvrez `index.html` dans votre navigateur et c'est parti.
+Alternative légère et 100 % locale à Skello (seule la dictée vocale, optionnelle, passe par le service de reconnaissance du navigateur), en HTML/CSS/JS pur. Aucun serveur, aucune dépendance : ouvrez `index.html` dans votre navigateur et c'est parti.
 
 ## ✨ Fonctionnalités
 
@@ -13,7 +13,35 @@ Alternative légère et 100 % locale à Skello, en HTML/CSS/JS pur. Aucun serveu
   - 💶 **Rémunération estimée** (taux horaire réglable dans le profil) et barre d'**objectif hebdomadaire** ;
   - ⚠️ **Disponibilités habituelles** : alerte si vous planifiez un shift un jour habituellement indisponible ;
   - ⌨️ **Raccourcis clavier** : `←` / `→` changer de semaine, `N` nouveau shift ;
-  - 📥 **Glisser-déposer** d'un fichier JSON n'importe où dans la fenêtre pour l'importer.
+  - 📥 **Glisser-déposer** d'un fichier JSON n'importe où dans la fenêtre pour l'importer ;
+  - 🎙️ **Dictaphone** : dictez vos notes au micro, le texte s'écrit au curseur (voir [Dictaphone](#-dictaphone-optionnel)) — le son est traité par le service vocal du navigateur, Créno n'enregistre rien.
+
+## 🎙️ Dictaphone (optionnel)
+
+Dictez vos notes au lieu de les taper : un bouton **micro** en bas à droite de l'écran démarre la dictée, une pastille affiche l'état (écoute, transcription, erreur) et la durée. Quand une fenêtre est ouverte, le même bouton et la même pastille y sont placés, au-dessus de son contenu : vous les voyez toujours et un appui suffit pour arrêter.
+
+- **Insertion au curseur** : le texte reconnu s'écrit dans le champ de saisie sélectionné (notes de shift, noms, profil), sans jamais être envoyé ailleurs. Dans les formulaires de shift et d'absence, vous relisez puis validez avec leur bouton **Enregistrer** ; les champs du profil, eux, sont enregistrés automatiquement dès qu'ils sont remplis — relisez-les avant d'y dicter.
+- **Raccourci** : `Ctrl+Maj+M` (`Cmd+Maj+M` sur macOS) pour démarrer et arrêter, y compris dans les fenêtres.
+- **5 minutes maximum** par dictée : la reconnaissance peut s'interrompre avant la fin (relancez la dictée), le texte reste modifiable.
+- Les champs numériques, les dates, les heures et les listes déroulantes ne sont pas des cibles de dictée.
+- **Lecteurs d'écran** : l'état (démarrage, arrêt, erreur) est annoncé une fois ; le minuteur et la transcription en cours ne sont pas lus.
+
+> ⚠️ **Vie privée** : le son quitte l'appareil. Le navigateur envoie l'audio à son propre service de reconnaissance vocale (Google, Microsoft ou Apple selon le navigateur). Créno n'enregistre rien, ne transmet rien et ne stocke aucun fichier audio : seul le texte reconnu est écrit dans votre champ, puis conservé dans le `localStorage` comme le reste de vos données.
+
+### Compatibilité
+
+| Navigateur | Dictée |
+| --- | --- |
+| Chromium, Edge, Safari récents | ✅ disponible |
+| Firefox (bureau ou Android) | ❌ non disponible : pas d'API `SpeechRecognition` |
+| Version extension Firefox | ❌ non disponible |
+
+Une connexion internet est nécessaire. Hors ligne (ou sans réseau), la dictée démarre puis échoue avec le message « Connexion requise pour la transcription » ; le reste de l'application continue de fonctionner normalement. Si le navigateur ne prend pas la dictée en charge, le bouton est masqué.
+
+### Si la dictée ne marche pas
+
+- **Permission micro refusée** : réautorisez le microphone dans les réglages du site du navigateur, puis rechargez la page.
+- **Message « Rien entendu »** : rapprochez-vous du micro et parlez après le démarrage de la dictée.
 
 ## 💾 Sauvegarde & transfert
 
@@ -73,7 +101,7 @@ Ouvrez l'URL sur votre téléphone, puis :
 
 Créno apparaît avec l'icône calendrier dans vos applications, s'ouvre en plein écran et **fonctionne sans internet** (service worker qui met tout en cache). Les mises à jour s'appliquent automatiquement dès que vous rouvrez l'app en ligne.
 
-> 💡 Les données restent **100 % locales** sur le téléphone (localStorage). Pensez à **⬇️ Exporter (JSON)** de temps en temps comme sauvegarde — l'export est compatible entre la version web, la PWA et l'extension Firefox.
+> 💡 Les données restent **100 % locales** sur le téléphone (localStorage) ; seule la dictée vocale, optionnelle, envoie le son au service de reconnaissance du navigateur. Pensez à **⬇️ Exporter (JSON)** de temps en temps comme sauvegarde — l'export est compatible entre la version web, la PWA et l'extension Firefox.
 
 ### 🔋 Batterie & arrière-plan (Android)
 
