@@ -6,12 +6,14 @@
    - autres ressources same-origin : cache d'abord + mise à jour en arrière-plan
      (les modifications d'app.js / styles.css sont donc prises au lancement suivant) ;
    - seules les réponses valides (2xx) sont mises en cache ;
-   - requêtes externes (api.skello.io, relais…) : jamais interceptées.
+   - requêtes externes (api.skello.io, relais public ou privé…) : jamais interceptées ;
+   - réponses du relais privé (<base>/ics?url=…) : jamais mises en cache, même si le relais
+     est hébergé sur la même origine que l'app.
    Pour publier une mise à jour de l'app : incrémentez CACHE.
    ============================================================ */
 'use strict';
 
-const CACHE = 'creno-v14';
+const CACHE = 'creno-v15';
 const ASSETS = [
   './',
   './index.html',
@@ -45,6 +47,7 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== location.origin) return; /* Skello / relais : direct */
+  if (/\/ics\/?$/.test(url.pathname)) return; /* réponse du relais privé : jamais mise en cache */
 
   /* Navigation : réseau d'abord (délai court : pas de radio bloquée), page en cache si hors-ligne */
   if (req.mode === 'navigate') {
