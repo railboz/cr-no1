@@ -62,7 +62,7 @@ Skello publie votre planning au format calendrier (ICS) — plus besoin de rien 
 3. Un bouton **« ⟳ Sync Skello »** apparaît dans la barre du planning : un clic récupère le planning, ajoute les nouveaux shifts et ignore les doublons.
 4. **Synchro automatique au démarrage** : l'app se met à jour toute seule (1 fois toutes les 12 h) tant que l'URL est enregistrée.
 
-> 🔒 **Vie privée** : sans relais privé, si le navigateur bloque la demande directe (CORS), Créno peut passer par un relais public — désactivable dans la fenêtre d'import. Dans ce cas, votre URL (qui contient un jeton privé) transite par un serveur tiers. Pour l'éviter, deux solutions : le [relais privé](#-relais-privé-optionnel), qui garde la synchro automatique en la faisant passer par votre propre serveur, ou le fichier `.ics` téléchargé manuellement.
+> 🔒 **Vie privée** : avec un relais privé, la garantie est nette — l'URL de votre calendrier (qui contient un jeton privé) ne part que vers votre serveur, jamais vers un tiers. Les relais publics ne servent que si **aucun** relais n'est configuré *et* que vous les autorisez dans la fenêtre d'import ; dans ce cas seulement, votre URL transite par un serveur tiers. Pour l'éviter : le [relais privé](#-relais-privé-optionnel), qui garde la synchro automatique en la faisant passer par votre propre serveur, ou le fichier `.ics` téléchargé manuellement.
 
 ### Méthodes manuelles
 
@@ -75,7 +75,7 @@ Créno convertit chaque créneau horaire en **shift** (l'établissement est reco
 
 Un petit service Rust (fourni dans `backend/`) peut aller chercher votre calendrier Skello à votre place : l'URL qui contient votre jeton privé ne transite alors que par votre propre serveur, jamais par un proxy public.
 
-**C'est facultatif.** Sans relais, l'app se comporte exactement comme avant : elle essaie Skello en direct, puis les relais publics si vous les avez autorisés. Avec un relais, l'ordre devient : direct → **votre relais** → relais publics (toujours désactivables).
+**C'est facultatif.** Sans relais, l'app essaie Skello en direct, puis les relais publics si vous les avez autorisés. Avec un relais, la chaîne est `direct → votre relais` et elle s'arrête là : les relais publics ne sont **jamais** pris en secours. Si le relais échoue (service arrêté, origine non autorisée), l'app affiche une erreur explicite et ne bascule sur aucun relais public.
 
 ### Lancer le relais
 
@@ -89,7 +89,7 @@ curl -sS http://127.0.0.1:8080/healthz      # {"status":"ok"}
 
 L'image (Alpine, binaire statique, uid 10001) tourne sans privilèges : disque racine en lecture seule, toutes les capabilities retirées, `no-new-privileges`, `/tmp` en mémoire, journaux plafonnés (10 Mio × 3 fichiers). Le port n'est publié que sur la boucle locale (`127.0.0.1:8080`) : pour l'exposer, laissez-le ainsi et terminez le TLS devant (`relais.example.fr { reverse_proxy 127.0.0.1:8080 }` avec Caddy — exemple complet dans `backend/README.md`).
 
-**Sans Docker** (Rust 1.85 ou plus) :
+**Sans Docker** (Rust 1.88 ou plus) :
 
 ```bash
 cd backend
@@ -106,25 +106,26 @@ Mêmes variables `CRENO_*` dans les deux cas, avec les défauts du code ci-desso
 | `CRENO_TIMEOUT_SECS` | `12` | délai maximal côté Skello |
 | `CRENO_RATE_LIMIT` | `30` | requêtes par minute et par IP (rafale 10) |
 | `CRENO_ALLOW_EXTENSION` | `0` | autorise l'origine `moz-extension://` (extension Firefox) |
+| `CRENO_ALLOW_FILE_ORIGIN` | `0` | `1` = accepter l'origine `null` d'une page ouverte en `file://` (refusée par défaut) |
 | `CRENO_ALLOWED_ORIGINS` | *(vide)* | origines CORS exactes autorisées en plus de `localhost` |
 | `RUST_LOG` | `info` | verbosité des journaux (`debug` pour diagnostiquer) |
 
 `GET /healthz` répond `{"status":"ok"}` : de quoi vérifier que le service tourne.
 
-> ⚠️ **Origine de la page** : le navigateur n'appelle le relais que si l'origine de Créno lui est déclarée. `file://` et un serveur local (`http://localhost:8080`) sont acceptés d'office ; pour une page en ligne, ajoutez son origine exacte — `CRENO_ALLOWED_ORIGINS=https://votre-pseudo.github.io` dans `deploy/.env`, ou en préfixe de `cargo run --release` sans Docker.
+> ⚠️ **Origine de la page** : le navigateur n'appelle le relais que si l'origine de Créno lui est déclarée. Un serveur local (`http://localhost:8080`) est accepté d'office ; une page ouverte en `file://`, elle, envoie `Origin: null` et n'est acceptée qu'avec `CRENO_ALLOW_FILE_ORIGIN=1`. Pour une page en ligne, ajoutez son origine exacte — `CRENO_ALLOWED_ORIGINS=https://votre-pseudo.github.io` dans `deploy/.env`, ou en préfixe de `cargo run --release` sans Docker.
 
 Contrat d'API, dépannage et durcissement détaillés : `backend/README.md`.
 
 ### Activer le relais dans l'app
 
-Menu avatar → **« 📅 Importer depuis Skello (ICS) »** → champ **« Relais privé (optionnel) »** → `https://votre-relais.exemple.fr` → **Enregistrer**. Champ vide : aucun relais n'est utilisé. Une adresse `http://` est refusée (le jeton partirait en clair).
+Menu avatar → **« 📅 Importer depuis Skello (ICS) »** → champ **« Relais privé (optionnel) »** → `https://votre-relais.exemple.fr` → **Enregistrer**. Champ vide : aucun relais n'est utilisé. Seule la boucle locale est acceptée en `http://` (`http://localhost`, `http://127.0.0.1`, `http://[::1]`) ; toute autre adresse `http://` est refusée par l'app (le jeton partirait en clair).
 
 ### Ce qu'il faut savoir
 
 - **HTTPS en pratique** : une page servie en HTTPS ne peut pas appeler un relais en `http://` (contenu mixte bloqué). Derrière un reverse proxy, le TLS se termine sur le proxy.
 - **Mono-utilisateur** : pas de compte ni d'authentification ; ne l'exposez pas à des inconnus.
 - **Rien n'est conservé** : le calendrier est relayé tel quel, sans stockage côté serveur. Seul le navigateur peut le garder 5 minutes (`Cache-Control: private, max-age=300`).
-- **Journal** : méthode, chemin (`/ics`), statut et durée uniquement — jamais l'URL cible ni le jeton.
+- **Journal** : méthode, chemin (`/ics`), statut et durée uniquement — jamais l'URL cible ni le jeton. Le reverse proxy qui précède doit être réglé de même : son journal d'accès ne doit pas contenir la query (`access_log off;` ou `log_format` sans `$request`/`$args` en nginx, `log` désactivé en Caddy) — détail dans `backend/README.md`, section « Journal d'accès du reverse proxy ».
 - **Reverse proxy** : la limite par IP voit l'adresse du proxy, donc tous les clients partagent le même quota ; `X-Forwarded-For` n'est pas pris en compte.
 
 ## 🚀 Lancer (desktop)
@@ -234,7 +235,7 @@ Le script recopie `index.html`, `app.js` et `styles.css` depuis la racine, retir
 
 - **Manifest V2** (Firefox le supporte « pour le futur prévisible », voir [la position de Mozilla](https://blog.mozilla.org/addons/2024/03/13/manifest-v3-manifest-v2-march-2024-update/)) ;
 - L'icône de l'extension ouvre l'app dans un onglet (réutilise l'onglet existant) via `background.js` ;
-- Permissions : `tabs` + `https://api.skello.io/*` seulement — aucun relais public autorisé, la synchro ICS se fait sans CORS ;
+- Permissions : `https://api.skello.io/*` seulement — pas de `tabs`, aucun relais public autorisé, la synchro ICS se fait sans CORS ;
 - `background.persistent: false` (pas de processus résident) et CSP explicite `script-src 'self'; object-src 'none';` ;
 - `browser_specific_settings.gecko.id` : `creno@loganbozier.fr` ;
 - Compatible Firefox 115+.

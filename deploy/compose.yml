@@ -38,6 +38,7 @@ services:
       CRENO_TIMEOUT_SECS: ${CRENO_TIMEOUT_SECS:-12}
       CRENO_RATE_LIMIT: ${CRENO_RATE_LIMIT:-30}
       CRENO_ALLOW_EXTENSION: ${CRENO_ALLOW_EXTENSION:-0}
+      CRENO_ALLOW_FILE_ORIGIN: ${CRENO_ALLOW_FILE_ORIGIN:-0}
       CRENO_ALLOWED_ORIGINS: ${CRENO_ALLOWED_ORIGINS:-}
       # Verbosité des journaux (info par défaut, debug pour diagnostiquer).
       RUST_LOG: ${RUST_LOG:-info}
