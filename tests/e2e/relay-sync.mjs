@@ -37,7 +37,11 @@ const PUBLIC = {
   corsproxy: 'https://corsproxy.io/?url=' + encodeURIComponent(SK_URL),
   codetabs: 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(SK_URL),
 };
-const ALLOWED_EXTERNAL = [SK_ORIGIN + '/', RELAY_ORIGIN + '/', 'https://api.allorigins.win/', 'https://corsproxy.io/', 'https://api.codetabs.com/'];
+const PUBLIC_URLS = Object.values(PUBLIC);
+/* Origin of each public relay, derived from its URL: one list, three uses. */
+const PUBLIC_ORIGINS = PUBLIC_URLS.map(u => new URL(u).origin + '/');
+const isPublicRelay = url => PUBLIC_ORIGINS.some(origin => url.startsWith(origin));
+const ALLOWED_EXTERNAL = [SK_ORIGIN + '/', RELAY_ORIGIN + '/', ...PUBLIC_ORIGINS];
 
 const ICS_BODY = [
   'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Créno QA//EN', 'BEGIN:VEVENT',
@@ -219,8 +223,7 @@ async function runCase(browser, base, spec) {
       if (spec.relay === '403') return fulfill(403, FORBIDDEN_JSON, 'application/json');
       return fulfill(500, 'not configured in this scenario', 'text/plain');
     }
-    const pub = url.startsWith('https://api.allorigins.win/') || url.startsWith('https://corsproxy.io/') || url.startsWith('https://api.codetabs.com/');
-    if (pub) {
+    if (isPublicRelay(url)) {
       if (spec.publicMode === 'codetabs-ics' && url.startsWith('https://api.codetabs.com/')) return fulfill(200, ICS_BODY);
       if (spec.publicMode === 'allorigins-ics' && url.startsWith('https://api.allorigins.win/')) return fulfill(200, ICS_BODY);
       if (spec.publicMode === 'html') return fulfill(200, HTML_BODY, 'text/html');
@@ -270,15 +273,19 @@ async function runCase(browser, base, spec) {
   }
 }
 
+/* Short names for the request logs: one row per host the harness may see. */
+const HOST_LABELS = {
+  'api.skello.io': 'direct',
+  'relay.test': 'private-relay',
+  'api.allorigins.win': 'allorigins',
+  'corsproxy.io': 'corsproxy',
+  'api.codetabs.com': 'codetabs',
+};
+
 function short(url) {
   try {
-    const u = new URL(url);
-    if (u.host === 'api.skello.io') return 'direct';
-    if (u.host === 'relay.test') return 'private-relay';
-    if (u.host === 'api.allorigins.win') return 'allorigins';
-    if (u.host === 'corsproxy.io') return 'corsproxy';
-    if (u.host === 'api.codetabs.com') return 'codetabs';
-    return u.host;
+    const { host } = new URL(url);
+    return HOST_LABELS[host] || host;
   } catch { return url; }
 }
 
@@ -330,7 +337,7 @@ const CASES = [
       expectUrls(fail, requests, [SK_URL, RELAY_ICS_URL]);
       expectImported(fail, snap, 'relay import');
       if (!(snap.lastIcsSync > baselineLastSync)) fail('lastIcsSync advanced after import', `${snap.lastIcsSync} <= ${baselineLastSync}`);
-      if (requests.some(u => PUBLIC.allorigins === u || PUBLIC.corsproxy === u || PUBLIC.codetabs === u)) fail('public relays not called', requests.map(short).join(' -> '));
+      if (requests.some(u => PUBLIC_URLS.includes(u))) fail('public relays not called', requests.map(short).join(' -> '));
     },
   },
   {
