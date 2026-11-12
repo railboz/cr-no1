@@ -55,7 +55,7 @@ async fn request_log_never_contains_the_target_url() {
         .with_ansi(false)
         .init();
 
-    let uri = format!("/ics?url=https%3A%2F%2Fapi.skello.io%2Fics%2Fabc%3Ftoken%3D{CANARY}");
+    let uri = format!("/ics?url=https%3A%2F%2Fevil.example%2Fics%3Ftoken%3D{CANARY}");
     let response = app(AppState::new(Config::default()))
         .oneshot(
             Request::builder()
@@ -66,8 +66,9 @@ async fn request_log_never_contains_the_target_url() {
         .await
         .expect("infallible");
 
-    // Wave 1: the guard stub refuses every target; the point of this test is the
-    // log line, not the status.
+    // The host is outside the default allowlist, so the guard refuses it before
+    // any resolution: deterministic 403, no DNS. The point of this test is the
+    // log line, not the reason for the refusal.
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let logs = sink.contents();
