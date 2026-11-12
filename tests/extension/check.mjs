@@ -4,10 +4,12 @@
  *
  *  1. When tools/build-extension.sh does not exist yet: print SKIP and exit 0
  *     (the extension agent has not landed its work).
- *  2. Otherwise: run `bash tools/build-extension.sh --check`, build twice,
- *     assert the zip is byte-identical across the two builds, then inspect it
- *     with python3 -m zipfile/zipfile: manifest, permissions, forbidden files,
- *     size budget.
+ *  2. Otherwise: build once (dist/ is gitignored: --check needs a zip to
+ *     verify, so the build must come first on a clean checkout), run
+ *     `bash tools/build-extension.sh --check` on that zip, inspect it with
+ *     python3 zipfile (manifest, permissions, background.js, forbidden
+ *     files, size budget), then build a second time and assert the zip is
+ *     byte-identical across both builds.
  *
  * Run:  node tests/extension/check.mjs
  * Exit: 0 pass or skip, 1 a check failed, 2 setup error.
@@ -24,7 +26,8 @@ const MANIFEST = path.join(ROOT, 'extension', 'manifest.json');
 const ZIP = path.join(ROOT, 'dist', 'creno-extension.zip');
 const SIZE_BUDGET = 250 * 1024; // 250 KB
 
-const EXPECTED_PERMISSIONS = ['tabs', 'https://api.skello.io/*'];
+const EXPECTED_PERMISSIONS = ['storage', 'https://api.skello.io/*'];
+const FORBIDDEN_PERMISSIONS = ['tabs', '<all_urls>'];
 const GECKO_ID = 'creno@loganbozier.fr';
 const FORBIDDEN_FILES = ['sw.js', 'manifest.webmanifest', 'readme.md'];
 const FORBIDDEN_PERMISSION_HOSTS = ['allorigins', 'corsproxy', 'codetabs', 'relay.test'];
@@ -65,6 +68,8 @@ function validateManifest(manifest, label) {
   }
   const badHost = perms.find(p => typeof p === 'string' && FORBIDDEN_PERMISSION_HOSTS.some(h => p.toLowerCase().includes(h)));
   if (badHost) fail(`${label}: relay host still in permissions`, badHost);
+  const broad = perms.find(p => typeof p === 'string' && FORBIDDEN_PERMISSIONS.includes(p));
+  if (broad) fail(`${label}: broad permission`, `${broad} must not be requested (history warning)`);
 }
 
 function zipEntries(zip) {
@@ -73,11 +78,14 @@ function zipEntries(zip) {
     'z = zipfile.ZipFile(sys.argv[1])',
     'entries = [{"name": i.filename, "size": i.file_size} for i in z.infolist()]',
     'manifest = None',
+    'background = None',
     'for e in z.infolist():',
-    '    if e.filename.rstrip("/").split("/")[-1] == "manifest.json":',
+    '    name = e.filename.rstrip("/").split("/")[-1]',
+    '    if name == "manifest.json":',
     '        manifest = z.read(e.filename).decode("utf-8", "replace")',
-    '        break',
-    'print(json.dumps({"entries": entries, "bad": z.testzip(), "manifestText": manifest}))',
+    '    elif name == "background.js":',
+    '        background = z.read(e.filename).decode("utf-8", "replace")',
+    'print(json.dumps({"entries": entries, "bad": z.testzip(), "manifestText": manifest, "backgroundText": background}))',
   ].join('\n');
   const res = run('python3', ['-c', py, zip]);
   if (res.status !== 0) throw new Error(`python3 zipfile failed: ${(res.stderr || '').trim()}`);
@@ -104,12 +112,8 @@ function main() {
   catch (e) { console.error(`[extension] FAIL extension/manifest.json is not valid JSON: ${e.message}`); process.exit(1); }
   validateManifest(manifest, 'extension/manifest.json');
 
-  const check = run('bash', ['tools/build-extension.sh', '--check']);
-  if (check.status !== 0) {
-    showFailure('tools/build-extension.sh --check', check);
-    fail('build --check', `exit ${check.status}`);
-  }
-
+  // Build first: dist/ is gitignored, so on a clean checkout there is no zip
+  // for --check to verify (it would die with "aucun zip à vérifier").
   const build1 = run('bash', ['tools/build-extension.sh']);
   if (build1.status !== 0) {
     showFailure('tools/build-extension.sh', build1);
@@ -123,6 +127,13 @@ function main() {
   const hash1 = sha256(ZIP);
   if (size === 0) fail('zip not empty', '0 byte');
   if (size > SIZE_BUDGET) fail('zip size budget', `${size} B > ${SIZE_BUDGET} B (250 KB)`);
+
+  // Then verify the zip that build #1 just produced.
+  const check = run('bash', ['tools/build-extension.sh', '--check']);
+  if (check.status !== 0) {
+    showFailure('tools/build-extension.sh --check', check);
+    fail('build --check', `exit ${check.status}`);
+  }
 
   let parsed;
   try { parsed = zipEntries(ZIP); }
@@ -144,6 +155,16 @@ function main() {
   else {
     try { validateManifest(JSON.parse(parsed.manifestText), 'zip manifest.json'); }
     catch (e) { fail('zip manifest.json: valid JSON', e.message); }
+  }
+
+  if (parsed.backgroundText == null) fail('zip background.js', 'missing from the zip');
+  else {
+    if (parsed.backgroundText.includes('tabs.query')) {
+      fail('zip background.js: no tabs.query', 'URL-based tab lookup requires the "tabs" permission');
+    }
+    if (!/browser\.tabs\.get\(/.test(parsed.backgroundText) || !/browser\.tabs\.update\(/.test(parsed.backgroundText)) {
+      fail('zip background.js: tab reuse', 'expected browser.tabs.get + browser.tabs.update using a stored id');
+    }
   }
 
   const build2 = run('bash', ['tools/build-extension.sh']);

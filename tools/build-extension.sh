@@ -122,23 +122,6 @@ write('app.js', app_out)
 PY
 }
 
-# Vérifie que chaque icône déclarée existe et que ses dimensions réelles
-# correspondent à la taille annoncée dans le manifeste.
-icon_check() {
-  local iconfile=$1
-  python3 - "$ROOT/$iconfile" <<'PY'
-import struct, sys, pathlib
-p = pathlib.Path(sys.argv[1])
-if not p.is_file():
-    sys.exit("icône absente : %s" % p)
-b = p.read_bytes()
-if b[:8] != b'\x89PNG\r\n\x1a\n':
-    sys.exit("%s n'est pas un PNG" % p)
-w, h = struct.unpack('>II', b[16:24])
-print(f"{w}x{h}")
-PY
-}
-
 # Assemble la charge utile complète dans le dossier $1 (créé/vidé par l'appelant).
 assemble() {
   local stage=$1
@@ -241,9 +224,12 @@ def fail(msg):
     sys.exit("assertion échouée : " + msg)
 
 if m.get('manifest_version') != 2: fail('manifest_version != 2')
-if m.get('version') != '1.1.0': fail('version != 1.1.0')
+if m.get('version') != '1.1.1': fail('version != 1.1.1')
 perms = m.get('permissions', [])
-if perms != ['tabs', 'https://api.skello.io/*']: fail('permissions inattendues : %r' % perms)
+if perms != ['storage', 'https://api.skello.io/*']:
+    fail('permissions inattendues : %r' % perms)
+if any(p == 'tabs' or p == '<all_urls>' for p in perms):
+    fail('permission trop large encore demandée : %r' % perms)
 for p in perms:
     if 'allorigins' in p or 'corsproxy' in p or 'codetabs' in p:
         fail('relais public encore autorisé : %r' % p)
@@ -286,6 +272,20 @@ if 'manifest.webmanifest' in html or 'sw.js' in html:
     fail('index.html généré référence encore la PWA')
 if 'serviceWorker' in app or 'sw.js' in app:
     fail('app.js généré enregistre encore le service worker')
+
+# background.js : réutilisation d'onglet sans la permission « tabs ».
+bg = z.read('background.js').decode('utf-8')
+# Motif concaténé : ce script ne doit pas contenir lui-même le motif
+# recherché (contrôle par grep : aucun reste de la recherche d'onglet par
+# URL, ni de l'ancienne fonction de vérification d'icône, jamais appelée et
+# supprimée).
+FORBIDDEN_TAB_LOOKUP = 'tabs' + '.' + 'query'
+if FORBIDDEN_TAB_LOOKUP in bg:
+    fail('background.js recherche un onglet par URL (permission « tabs » requise)')
+if 'browser.tabs.get' not in bg or 'browser.tabs.update' not in bg:
+    fail('background.js ne réactive pas l’onglet mémorisé (tabs.get / tabs.update)')
+if 'browser.storage' in bg and 'storage' not in perms:
+    fail('background.js utilise browser.storage sans la permission "storage"')
 
 print("manifeste OK : MV%s v%s, id=%s, permissions=%s"
       % (m['manifest_version'], m['version'], gecko['id'], ','.join(perms)))
