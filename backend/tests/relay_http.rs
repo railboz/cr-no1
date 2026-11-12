@@ -28,10 +28,9 @@
 //! because they never reach the guard's resolution step, and they stay valid
 //! after the guard lands.
 
-use std::io::Write;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use axum::Router;
@@ -50,6 +49,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tower::ServiceExt;
 use url::Url;
+
+mod common;
 
 /// Valid calendar served by the happy-path upstream.
 const CALENDAR: &[u8] = include_bytes!("fixtures/relay-calendar.ics");
@@ -231,7 +232,6 @@ fn raw_target(name: &'static str, addr: SocketAddr) -> ValidatedTarget {
 
 #[tokio::test]
 async fn happy_path_returns_the_upstream_bytes_and_the_contract_etag() {
-    // Install the sink before the first fetch: the interest cache is global.
     let _logs = logs();
     let upstream = start_upstream("relay-happy.invalid").await;
     let body = fetch_ics(&upstream.target("/calendar.ics"), &config(2_097_152, 5))
@@ -251,7 +251,6 @@ async fn happy_path_returns_the_upstream_bytes_and_the_contract_etag() {
 
 #[tokio::test]
 async fn dns_pinning_uses_the_validated_addresses_not_the_system_resolver() {
-    // Install the sink before the first fetch: the interest cache is global.
     let _logs = logs();
     // `.invalid` is guaranteed never to resolve (RFC 6761), so this 200 can
     // only be produced by the pinned loopback address handed over by the guard.
@@ -265,7 +264,6 @@ async fn dns_pinning_uses_the_validated_addresses_not_the_system_resolver() {
 
 #[tokio::test]
 async fn a_redirect_is_a_502_and_the_upstream_is_hit_exactly_once() {
-    // Install the sink before the first fetch: the interest cache is global.
     let _logs = logs();
     let upstream = start_upstream("relay-redirect.invalid").await;
     let error = fetch_ics(&upstream.target("/redirect.ics"), &config(2_097_152, 5))
@@ -283,7 +281,6 @@ async fn a_redirect_is_a_502_and_the_upstream_is_hit_exactly_once() {
 
 #[tokio::test]
 async fn an_upstream_5xx_is_a_502() {
-    // Install the sink before the first fetch: the interest cache is global.
     let _logs = logs();
     let upstream = start_upstream("relay-boom.invalid").await;
     let error = fetch_ics(&upstream.target("/boom.ics"), &config(2_097_152, 5))
@@ -295,7 +292,6 @@ async fn an_upstream_5xx_is_a_502() {
 
 #[tokio::test]
 async fn a_declared_length_above_the_cap_is_refused_before_reading() {
-    // Install the sink before the first fetch: the interest cache is global.
     let _logs = logs();
     // 10 MiB announced and no body at all: only the header can explain the
     // 413, so a length-first check is the only way to pass.
@@ -315,7 +311,6 @@ async fn a_declared_length_above_the_cap_is_refused_before_reading() {
 
 #[tokio::test]
 async fn a_chunked_body_over_the_cap_aborts_mid_stream() {
-    // Install the sink before the first fetch: the interest cache is global.
     let _logs = logs();
     // 2 MiB+ with no `Content-Length` and no end in sight: the read must stop
     // the moment the cap is crossed, not at the end of the body.
@@ -338,7 +333,6 @@ async fn a_chunked_body_over_the_cap_aborts_mid_stream() {
 
 #[tokio::test]
 async fn a_slow_upstream_is_a_504() {
-    // Install the sink before the first fetch: the interest cache is global.
     let _logs = logs();
     let upstream = start_upstream("relay-slow.invalid").await;
     let error = fetch_ics(&upstream.target("/slow.ics"), &config(2_097_152, 1))
@@ -351,56 +345,12 @@ async fn a_slow_upstream_is_a_504() {
 // Log hygiene
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Default)]
-struct Sink(Arc<Mutex<Vec<u8>>>);
-
-impl Sink {
-    fn contents(&self) -> String {
-        let guard = self.0.lock().expect("sink lock");
-        String::from_utf8_lossy(&guard).into_owned()
-    }
-}
-
-/// Installs the binary's single tracing sink, at `DEBUG`, on first use.
+/// Installs the shared sink at `DEBUG` on first use.
 ///
-/// It has to be *global*, not thread-local: `tracing` caches the interest of
-/// each callsite process-wide, so a subscriber that only exists on one test
-/// thread can be neutralised by another test reaching the same `debug!` first.
-/// Every fetching test calls `logs()` before its first request, and the interest
-/// cache is rebuilt once the subscriber is in place.
-fn logs() -> &'static Sink {
-    static SINK: OnceLock<Sink> = OnceLock::new();
-    SINK.get_or_init(|| {
-        let sink = Sink::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(sink.clone())
-            .with_max_level(tracing::Level::DEBUG)
-            .with_ansi(false)
-            .finish();
-        if tracing::subscriber::set_global_default(subscriber).is_ok() {
-            tracing::callsite::rebuild_interest_cache();
-        }
-        sink
-    })
-}
-
-impl Write for Sink {
-    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().expect("sink lock").extend_from_slice(data);
-        Ok(data.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Sink {
-    type Writer = Self;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
+/// It has to be installed before the first fetch: `tracing` caches callsite
+/// interest process-wide, so a subscriber added later needs a rebuild.
+fn logs() -> &'static common::Sink {
+    common::logs(tracing::Level::DEBUG)
 }
 
 #[tokio::test]

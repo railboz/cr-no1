@@ -6,64 +6,20 @@
 //! request whose query string holds a canary token, and inspects everything the
 //! relay printed.
 
-use std::io::Write;
-use std::sync::{Arc, Mutex, OnceLock};
-
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use creno_relay::config::Config;
 use creno_relay::{AppState, app};
 use tower::ServiceExt;
 
+mod common;
+
 const CANARY: &str = "canary-6f1a2f83-1c2d-4a5e";
 
-#[derive(Clone, Default)]
-struct Sink(Arc<Mutex<Vec<u8>>>);
-
-impl Sink {
-    fn contents(&self) -> String {
-        let guard = self.0.lock().expect("sink lock");
-        String::from_utf8_lossy(&guard).into_owned()
-    }
-}
-
-impl Write for Sink {
-    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().expect("sink lock").extend_from_slice(data);
-        Ok(data.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Sink {
-    type Writer = Self;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
-}
-
-/// Installs the test process's single tracing sink, at `TRACE`, on first use.
-///
-/// `tracing` accepts one global subscriber per process, so both tests share it.
-fn logs() -> &'static Sink {
-    static SINK: OnceLock<Sink> = OnceLock::new();
-    SINK.get_or_init(|| {
-        let sink = Sink::default();
-        // Process-wide subscriber: every thread of the test process logs here.
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(sink.clone())
-            .with_max_level(tracing::Level::TRACE)
-            .with_ansi(false)
-            .finish();
-        if tracing::subscriber::set_global_default(subscriber).is_ok() {
-            tracing::callsite::rebuild_interest_cache();
-        }
-        sink
-    })
+/// Installs the shared sink at `TRACE` on first use: the point is to catch any
+/// log line at all, not just the levels the relay uses today.
+fn logs() -> &'static common::Sink {
+    common::logs(tracing::Level::TRACE)
 }
 
 async fn get(uri: &str) -> (StatusCode, Vec<u8>) {
