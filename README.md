@@ -1,6 +1,6 @@
 # 🗓️ Créno — votre planning, simplement
 
-Alternative légère et 100 % locale à Skello (seule la dictée vocale, optionnelle, passe par le service de reconnaissance du navigateur), en HTML/CSS/JS pur. Aucun serveur, aucune dépendance : ouvrez `index.html` dans votre navigateur et c'est parti.
+Alternative légère à Skello, en HTML/CSS/JS pur : vos shifts et absences restent dans le `localStorage` de votre navigateur, sans compte et sans base de données. Aucun serveur à installer pour l'utiliser : ouvrez `index.html` et c'est parti. Deux fonctions optionnelles sortent de l'appareil, et seulement celles-là : la dictée vocale (service de reconnaissance du navigateur) et la synchro Skello (l'URL de votre calendrier, récupérée en direct ou via un relais que vous choisissez).
 
 ## ✨ Fonctionnalités
 
@@ -15,6 +15,8 @@ Alternative légère et 100 % locale à Skello (seule la dictée vocale, optionn
   - ⌨️ **Raccourcis clavier** : `←` / `→` changer de semaine, `N` nouveau shift ;
   - 📥 **Glisser-déposer** d'un fichier JSON n'importe où dans la fenêtre pour l'importer ;
   - 🎙️ **Dictaphone** : dictez vos notes au micro, le texte s'écrit au curseur (voir [Dictaphone](#-dictaphone-optionnel)) — le son est traité par le service vocal du navigateur, Créno n'enregistre rien.
+- **🔒 Relais privé (optionnel)** : un petit service Rust à héberger vous-même pour que l'URL de votre calendrier Skello ne transite par aucun relais public (voir [Relais privé](#-relais-privé-optionnel)).
+- **🦊 Extension Firefox dans le dépôt** : sources versionnées dans `extension/`, paquet reconstruit avec `bash tools/build-extension.sh` → `dist/creno-extension.zip`.
 
 ## 🎙️ Dictaphone (optionnel)
 
@@ -60,7 +62,7 @@ Skello publie votre planning au format calendrier (ICS) — plus besoin de rien 
 3. Un bouton **« ⟳ Sync Skello »** apparaît dans la barre du planning : un clic récupère le planning, ajoute les nouveaux shifts et ignore les doublons.
 4. **Synchro automatique au démarrage** : l'app se met à jour toute seule (1 fois toutes les 12 h) tant que l'URL est enregistrée.
 
-> 🔒 **Vie privée** : si le navigateur bloque la demande directe (CORS), Créno peut passer par un relais public — désactivable dans la fenêtre d'import. Dans ce cas, votre URL (qui contient un jeton privé) transite par un serveur tiers. La méthode 100 % privée reste le fichier `.ics` téléchargé manuellement.
+> 🔒 **Vie privée** : sans relais privé, si le navigateur bloque la demande directe (CORS), Créno peut passer par un relais public — désactivable dans la fenêtre d'import. Dans ce cas, votre URL (qui contient un jeton privé) transite par un serveur tiers. Pour l'éviter, deux solutions : le [relais privé](#-relais-privé-optionnel), qui garde la synchro automatique en la faisant passer par votre propre serveur, ou le fichier `.ics` téléchargé manuellement.
 
 ### Méthodes manuelles
 
@@ -68,6 +70,62 @@ Skello publie votre planning au format calendrier (ICS) — plus besoin de rien 
 - Ou collez directement le contenu du calendrier dans la fenêtre d'import.
 
 Créno convertit chaque créneau horaire en **shift** (l'établissement est reconnu ou créé automatiquement) et chaque journée entière en **absence** (congés, RTT, maladie… selon le libellé). Les shifts déjà présents ne sont jamais importés deux fois.
+
+## 🔒 Relais privé (optionnel)
+
+Un petit service Rust (fourni dans `backend/`) peut aller chercher votre calendrier Skello à votre place : l'URL qui contient votre jeton privé ne transite alors que par votre propre serveur, jamais par un proxy public.
+
+**C'est facultatif.** Sans relais, l'app se comporte exactement comme avant : elle essaie Skello en direct, puis les relais publics si vous les avez autorisés. Avec un relais, l'ordre devient : direct → **votre relais** → relais publics (toujours désactivables).
+
+### Lancer le relais
+
+**Docker (recommandé)** — depuis la racine du dépôt :
+
+```bash
+cp deploy/.env.example deploy/.env          # facultatif : les défauts suffisent
+docker compose -f deploy/compose.yml up -d
+curl -sS http://127.0.0.1:8080/healthz      # {"status":"ok"}
+```
+
+L'image (Alpine, binaire statique, uid 10001) tourne sans privilèges : disque racine en lecture seule, toutes les capabilities retirées, `no-new-privileges`, `/tmp` en mémoire, journaux plafonnés (10 Mio × 3 fichiers). Le port n'est publié que sur la boucle locale (`127.0.0.1:8080`) : pour l'exposer, laissez-le ainsi et terminez le TLS devant (`relais.example.fr { reverse_proxy 127.0.0.1:8080 }` avec Caddy — exemple complet dans `backend/README.md`).
+
+**Sans Docker** (Rust 1.85 ou plus) :
+
+```bash
+cd backend
+cargo run --release                         # → écoute sur http://127.0.0.1:8080
+```
+
+Mêmes variables `CRENO_*` dans les deux cas, avec les défauts du code ci-dessous. En Docker, réglez-les dans `deploy/.env` (chargé automatiquement par Compose) : les deux que l'on change le plus sont `CRENO_ALLOWED_ORIGINS` (origine exacte de la page Créno) et `CRENO_ALLOWED_HOSTS`. N'y remettez pas `CRENO_BIND=127.0.0.1:8080` : dans le conteneur l'écoute doit rester `0.0.0.0:8080`, c'est la publication du port qui la limite à la boucle locale. Par défaut le relais ne récupère que sur `api.skello.io`.
+
+| Variable | Défaut | Rôle |
+| --- | --- | --- |
+| `CRENO_BIND` | `127.0.0.1:8080` | adresse d'écoute (`0.0.0.0:8080` en conteneur) |
+| `CRENO_ALLOWED_HOSTS` | `api.skello.io` | hôtes autorisés (suffixes séparés par des virgules) |
+| `CRENO_MAX_BYTES` | `2097152` (2 Mio) | taille maximale du calendrier récupéré |
+| `CRENO_TIMEOUT_SECS` | `12` | délai maximal côté Skello |
+| `CRENO_RATE_LIMIT` | `30` | requêtes par minute et par IP (rafale 10) |
+| `CRENO_ALLOW_EXTENSION` | `0` | autorise l'origine `moz-extension://` (extension Firefox) |
+| `CRENO_ALLOWED_ORIGINS` | *(vide)* | origines CORS exactes autorisées en plus de `localhost` |
+| `RUST_LOG` | `info` | verbosité des journaux (`debug` pour diagnostiquer) |
+
+`GET /healthz` répond `{"status":"ok"}` : de quoi vérifier que le service tourne.
+
+> ⚠️ **Origine de la page** : le navigateur n'appelle le relais que si l'origine de Créno lui est déclarée. `file://` et un serveur local (`http://localhost:8080`) sont acceptés d'office ; pour une page en ligne, ajoutez son origine exacte — `CRENO_ALLOWED_ORIGINS=https://votre-pseudo.github.io` dans `deploy/.env`, ou en préfixe de `cargo run --release` sans Docker.
+
+Contrat d'API, dépannage et durcissement détaillés : `backend/README.md`.
+
+### Activer le relais dans l'app
+
+Menu avatar → **« 📅 Importer depuis Skello (ICS) »** → champ **« Relais privé (optionnel) »** → `https://votre-relais.exemple.fr` → **Enregistrer**. Champ vide : aucun relais n'est utilisé. Une adresse `http://` est refusée (le jeton partirait en clair).
+
+### Ce qu'il faut savoir
+
+- **HTTPS en pratique** : une page servie en HTTPS ne peut pas appeler un relais en `http://` (contenu mixte bloqué). Derrière un reverse proxy, le TLS se termine sur le proxy.
+- **Mono-utilisateur** : pas de compte ni d'authentification ; ne l'exposez pas à des inconnus.
+- **Rien n'est conservé** : le calendrier est relayé tel quel, sans stockage côté serveur. Seul le navigateur peut le garder 5 minutes (`Cache-Control: private, max-age=300`).
+- **Journal** : méthode, chemin (`/ics`), statut et durée uniquement — jamais l'URL cible ni le jeton.
+- **Reverse proxy** : la limite par IP voit l'adresse du proxy, donc tous les clients partagent le même quota ; `X-Forwarded-For` n'est pas pris en compte.
 
 ## 🚀 Lancer (desktop)
 
@@ -101,7 +159,7 @@ Ouvrez l'URL sur votre téléphone, puis :
 
 Créno apparaît avec l'icône calendrier dans vos applications, s'ouvre en plein écran et **fonctionne sans internet** (service worker qui met tout en cache). Les mises à jour s'appliquent automatiquement dès que vous rouvrez l'app en ligne.
 
-> 💡 Les données restent **100 % locales** sur le téléphone (localStorage) ; seule la dictée vocale, optionnelle, envoie le son au service de reconnaissance du navigateur. Pensez à **⬇️ Exporter (JSON)** de temps en temps comme sauvegarde — l'export est compatible entre la version web, la PWA et l'extension Firefox.
+> 💡 Les données que vous saisissez restent **sur le téléphone** (localStorage) ; seule la dictée vocale, optionnelle, envoie le son au service de reconnaissance du navigateur, et seule la synchro Skello, optionnelle, envoie l'URL de votre calendrier. Pensez à **⬇️ Exporter (JSON)** de temps en temps comme sauvegarde — l'export est compatible entre la version web, la PWA et l'extension Firefox.
 
 ### 🔋 Batterie & arrière-plan (Android)
 
@@ -118,18 +176,14 @@ Sur mobile, les effets graphiques coûteux (fond fixe, flou GPU) sont désactiv�
 
 ### Variantes d'installation
 
-- **Sans héberger** : servez le dossier depuis votre PC (`serve.ps1`) — mais l'app ne sera accessible que si le PC est allumé, et l'installation PWA complète exige HTTPS.
+- **Sans héberger** : servez le dossier depuis votre PC — depuis la racine du dépôt, `python3 -m http.server 8080` puis `http://localhost:8080` — mais l'app ne sera accessible que si le PC est allumé, et l'installation PWA complète exige HTTPS.
 - **Extension Firefox Android** : voir la section suivante (installation par fichier `.xpi` signé).
 
 ## 🦊 Extension Firefox (navigateur)
 
-Une version **extension** existe aussi dans `../creno-extension/` (Manifest V2) : icône dans la barre d'outils, synchro Skello **directe et privée** (permissions host accordées, sans relais). Voir `../creno-extension/README.md` ou la section ci-dessous pour la reconstruction :
+Une version **extension** existe aussi, directement dans ce dépôt : le dossier `extension/` (Manifest V2) fournit l'icône de la barre d'outils et la synchro Skello **directe et privée** (permission `https://api.skello.io/*`, sans relais public).
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File build-extension.ps1
-```
-
-
+Les fichiers repris de l'app (`extension/index.html`, `app.js`, `styles.css`, `icons/`) et `dist/` sont générés à chaque construction et ignorés par git ; `extension/manifest.json`, `extension/background.js`, son `README.md` et `tools/` sont versionnés. Détails et reconstruction : `extension/README.md` et la section [Reconstruire l'extension](#reconstruire-lextension) plus bas.
 
 ## 📱 Extension Firefox pour téléphone (Android)
 
@@ -146,7 +200,7 @@ L'installation se fait depuis un fichier `.xpi` **signé par Mozilla** (exigence
 
 1. **Créez un compte gratuit** sur [addons.mozilla.org](https://addons.mozilla.org/fr/developers/).
 2. Allez dans **« Outils pour développeurs » → « Soumettre un nouveau module »**.
-3. Choisissez **« Sur votre propre serveur »** (distribution personnelle, non listée) et envoyez le fichier **`creno-extension.zip`**.
+3. Choisissez **« Sur votre propre serveur »** (distribution personnelle, non listée) et envoyez le fichier **`dist/creno-extension.zip`**.
 4. Mozilla le signale et vous laisse télécharger le **`.xpi` signé** (la signature est automatique et instantanée pour la distribution non listée).
 5. Transférez ce `.xpi` sur votre téléphone, puis dans Firefox Android :
    - **Paramètres → À propos de Firefox**, touchez **5 fois le logo Firefox** (menu développeur caché) ;
@@ -166,18 +220,21 @@ Ensuite, renseignez votre **URL Skello** dans la fenêtre d'import ICS : la sync
 
 ### Reconstruire l'extension
 
-Le paquet est régénéré avec :
+Depuis la racine du dépôt (outils requis : `bash`, `python3`, `zip`, `unzip`, `sha256sum`) :
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File build-extension.ps1
+```bash
+bash tools/build-extension.sh            # → dist/creno-extension.zip (déterministe, 7 fichiers)
+bash tools/build-extension.sh --check    # vérifie le zip produit
+bash tools/build-extension.sh --clean    # supprime les artefacts générés
 ```
 
-Le script copie les fichiers à jour de `creno/` dans `creno-extension/` puis produit `creno-extension.zip` (format `.xpi`).
+Le script recopie `index.html`, `app.js` et `styles.css` depuis la racine, retire le manifeste PWA et le service worker, puis écrit un zip reproductible (`dist/creno-extension.zip`, horodatages figés) accompagné de son sha256. Le zip se renomme `.xpi` à l'installation, une fois signé par Mozilla.
 
 ### Détails techniques
 
 - **Manifest V2** (Firefox le supporte « pour le futur prévisible », voir [la position de Mozilla](https://blog.mozilla.org/addons/2024/03/13/manifest-v3-manifest-v2-march-2024-update/)) ;
 - L'icône de l'extension ouvre l'app dans un onglet (réutilise l'onglet existant) via `background.js` ;
-- Permissions : `tabs` + les domaines Skello/relais, pour autoriser la synchro ICS sans CORS ;
+- Permissions : `tabs` + `https://api.skello.io/*` seulement — aucun relais public autorisé, la synchro ICS se fait sans CORS ;
+- `background.persistent: false` (pas de processus résident) et CSP explicite `script-src 'self'; object-src 'none';` ;
 - `browser_specific_settings.gecko.id` : `creno@loganbozier.fr` ;
 - Compatible Firefox 115+.
