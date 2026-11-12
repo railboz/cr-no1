@@ -329,6 +329,17 @@
   </div>
 </dialog>
 
+<!-- ================= DICTAPHONE ================= -->
+<button type="button" id="dictaBtn" aria-label="Dicter (Ctrl/Cmd+Maj+M)" aria-pressed="false" title="Dicter (Ctrl/Cmd+Maj+M)" hidden>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+</button>
+<!-- Pastille purement visuelle ; les annonces lecteur d'écran passent par #dictaLive. -->
+<div id="dictaPill" aria-hidden="true" hidden>
+  <span class="dicta-pill-dot" aria-hidden="true"></span>
+  <span id="dictaPillText"></span>
+</div>
+<div id="dictaLive" role="status" aria-live="polite" class="sr-only"></div>
+
 <div id="toasts"></div>
 <div id="dropOverlay" class="drop-overlay hidden"><div class="box">📥 Déposez votre fichier JSON ou ICS pour l'importer</div></div>
 <input type="file" id="importFile" accept="application/json,.json" hidden>

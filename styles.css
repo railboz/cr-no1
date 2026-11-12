@@ -558,3 +558,97 @@ dialog::backdrop{ background:rgba(4,8,14,.65); backdrop-filter:blur(3px) }
 }
 
 @keyframes sheetUp{ from{ transform:translateY(46px); opacity:.5 } to{ transform:none; opacity:1 } }
+
+/* ---------- Dictaphone ---------- */
+/* Contrat figé avec app.js : #dictaBtn (is-listening), #dictaPill (is-error).
+   #dictaPill est purement visuelle (aria-hidden) ; #dictaLive — .sr-only —
+   porte role="status" + aria-live pour les lecteurs d'écran. */
+#dictaBtn[hidden],#dictaPill[hidden]{ display:none !important }
+
+#dictaBtn{
+  /* au-dessus du contenu, de la nav mobile et de #dropOverlay (z-index 200), sous les toasts (300) */
+  position:fixed; z-index:210; right:24px;
+  bottom:calc(24px + env(safe-area-inset-bottom));
+  width:48px; height:48px; min-width:48px; min-height:48px; border-radius:50%;
+  display:grid; place-items:center;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  color:#04120c; border:1px solid rgba(52,211,153,.5);
+  box-shadow:var(--shadow),0 6px 18px rgba(52,211,153,.28);
+  touch-action:manipulation;
+  transition:transform .15s,box-shadow .15s,filter .15s,background .15s;
+}
+#dictaBtn:hover{ filter:brightness(1.08); transform:translateY(-1px) }
+#dictaBtn:active{ transform:scale(.94) }
+#dictaBtn:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; box-shadow:var(--shadow) }
+#dictaBtn svg{ width:20px; height:20px; display:block }
+#dictaBtn.is-listening{ background:var(--danger); color:#fff; border-color:rgba(248,113,113,.6) }
+#dictaBtn.is-listening::after{
+  content:''; position:absolute; inset:-5px; border-radius:50%;
+  border:2px solid var(--danger); opacity:0; pointer-events:none;
+  animation:dictaPulse 1.8s ease-out infinite;
+}
+@keyframes dictaPulse{
+  0%{ transform:scale(.92); opacity:.7 }
+  70%{ opacity:0 }
+  100%{ transform:scale(1.22); opacity:0 }
+}
+@media (prefers-reduced-motion: reduce){
+  #dictaBtn.is-listening::after{ animation:none }
+}
+
+#dictaPill{
+  position:fixed; z-index:150; right:24px;
+  bottom:calc(84px + env(safe-area-inset-bottom));
+  display:flex; align-items:center; gap:8px;
+  max-width:min(340px,calc(100vw - 48px));
+  padding:8px 13px; border-radius:999px;
+  background:var(--panel-3); border:1px solid var(--border);
+  box-shadow:var(--shadow);
+  font-size:12.5px; font-weight:700; line-height:1.35;
+  overflow-wrap:anywhere;
+}
+#dictaPill.is-error{ border-color:rgba(248,113,113,.4); color:var(--danger) }
+.dicta-pill-dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; background:var(--accent); box-shadow:0 0 8px rgba(52,211,153,.75) }
+#dictaPill.is-error .dicta-pill-dot{ background:var(--danger); box-shadow:0 0 8px rgba(248,113,113,.75) }
+
+/* --- Contrôles re-parentés par app.js dans un dialogue ouvert (top layer) ---
+   app.js les ajoute en DERNIERS enfants du .dialog-body. On rétablit donc l'ordre
+   (pastille au-dessus du formulaire) et on les remet dans le flux : la position
+   fixed était rognée par l'overflow:auto du <dialog> et décalée par le transform
+   de sheetUp. Le bouton reste collé au bas de la zone visible du dialogue. */
+.dialog-body:has(> #dictaBtn){ display:flex; flex-direction:column }
+.dialog-body:has(> #dictaBtn) > #dictaPill{
+  position:static; order:-1; align-self:flex-start;
+  margin:0 0 14px; max-width:100%;
+}
+.dialog-body:has(> #dictaBtn) > #dictaBtn{
+  position:sticky; order:99; right:auto;
+  bottom:calc(12px + env(safe-area-inset-bottom));
+  align-self:flex-end; flex:0 0 48px; margin-top:12px; z-index:2;
+}
+/* Le défilement déclenché par le focus (champ dicté) laisse la place au bouton collé. */
+dialog:has(.dialog-body > #dictaBtn){ scroll-padding-bottom:76px }
+
+/* Les toasts occupent déjà le coin bas-droit : on les décale pour libérer le bouton. */
+@media (min-width: 721px){
+  #toasts{ right:84px }
+}
+
+@media (max-width: 720px){
+  /* Au-dessus de la navigation fixe : même calcul que #toasts, côté droit */
+  #dictaBtn{ right:14px; bottom:calc(72px + env(safe-area-inset-bottom)) }
+  #dictaPill{ right:14px; bottom:calc(132px + env(safe-area-inset-bottom)); max-width:calc(100vw - 28px) }
+  #toasts{ right:74px }
+}
+
+/* ============================================================
+   Utilitaires
+   ============================================================ */
+/* Contenu réservé aux lecteurs d'écran : ancre les annonces de #dictaLive.
+   Classe nouvelle, utilisée uniquement par le dictaphone — aucun élément
+   existant ne la porte, donc aucun style existant n'est affecté. */
+.sr-only{
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%);
+  white-space:nowrap; border:0;
+}

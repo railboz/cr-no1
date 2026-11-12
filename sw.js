@@ -11,7 +11,7 @@
    ============================================================ */
 'use strict';
 
-const CACHE = 'creno-v12';
+const CACHE = 'creno-v14';
 const ASSETS = [
   './',
   './index.html',
