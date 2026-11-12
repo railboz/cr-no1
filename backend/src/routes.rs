@@ -290,10 +290,11 @@ mod tests {
 
     #[tokio::test]
     async fn ics_with_valid_length_url_reaches_the_guard() {
-        // Wave 1: the guard stub refuses everything.
+        // A well-formed URL of a legal length still goes through the guard. The
+        // host is outside the allowlist, so the guard refuses it before any
+        // resolution: deterministic 403, no DNS, no upstream call.
         let encoded: String =
-            url::form_urlencoded::byte_serialize(b"https://api.skello.io/ics/abcdef/calendar.ics")
-                .collect();
+            url::form_urlencoded::byte_serialize(b"https://evil.example/x").collect();
         let reply = call(get(&format!("/ics?url={encoded}"))).await;
         assert_eq!(reply.status, StatusCode::FORBIDDEN);
         assert_eq!(reply.body, r#"{"error":"forbidden_host"}"#);
@@ -301,6 +302,14 @@ mod tests {
             header(&reply, header::X_CONTENT_TYPE_OPTIONS).as_deref(),
             Some("nosniff")
         );
+
+        // Same request shape above the 2048-byte limit: still a parameter shape
+        // error, so `invalid_url` and never a host refusal.
+        let target = format!("https://api.skello.io/ics?token={}", "a".repeat(2100));
+        let encoded: String = url::form_urlencoded::byte_serialize(target.as_bytes()).collect();
+        let reply = call(get(&format!("/ics?url={encoded}"))).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+        assert_eq!(reply.body, r#"{"error":"invalid_url"}"#);
     }
 
     #[tokio::test]
