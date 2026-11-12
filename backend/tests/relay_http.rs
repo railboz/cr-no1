@@ -7,26 +7,17 @@
 //!
 //! # Why the network cases call `fetch_ics` directly
 //!
-//! Wave 1 ships `guard::validate_target` as a stub that refuses every target
-//! with `ForbiddenHost`, so `GET /ics` cannot reach the fetch yet. The
-//! fetch-level cases below build the `ValidatedTarget` the guard will hand over
-//! (URL + allowlisted suffix + the addresses it resolved) and drive the real
-//! `fetch_ics`. Once `agent/backend-guard` lands, these five must be re-run
-//! through `app(state)` and assert the response headers instead of the bytes:
+//! [`guard`] accepts `https` on port 443 only and refuses every non-global
+//! address, so a plain-HTTP upstream on `127.0.0.1` is — by design — not
+//! reachable through `GET /ics`. The fetch-level cases below therefore build
+//! the `ValidatedTarget` the guard hands over (URL + allowlisted suffix + the
+//! addresses it resolved) and drive the real `fetch_ics`. The response headers
+//! and the `304` branch are pinned separately in `response_contract.rs`.
 //!
-//! * `happy_path_returns_the_upstream_bytes_and_the_contract_etag` → 200,
-//!   `content-type: text/calendar; charset=utf-8`, `ETag`,
-//!   `cache-control: private, max-age=300`, `X-Content-Type-Options: nosniff`.
-//! * a replay of the returned `ETag` in `If-None-Match` → 304 with an empty
-//!   body (the 304 branch is pure router logic and already unit-tested in
-//!   `routes`, but it has no fetch-level counterpart here).
-//! * `a_redirect_…` / `an_upstream_5xx_…` → 502 `upstream_error`.
-//! * `a_declared_length_…` / `a_chunked_body_…` → 413 `upstream_too_large`.
-//! * `a_slow_upstream_is_a_504` → 504 `timeout`.
+//! The router-level cases at the bottom (`400`, `403`, `405`) only need the
+//! query-string and allowlist steps, which run before any resolution.
 //!
-//! The router-level cases at the bottom (`400`, `403`, `405`) work today
-//! because they never reach the guard's resolution step, and they stay valid
-//! after the guard lands.
+//! [`guard`]: creno_relay::guard
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -66,8 +57,8 @@ const ALLOWED_SUFFIX: &str = "test.invalid";
 fn config(max_bytes: usize, timeout_secs: u64) -> Config {
     Config {
         bind: "127.0.0.1:0".parse().expect("literal socket address"),
-        // Only the router-level `403` case consults this list; the guard stub
-        // refuses everything regardless, and the fetch tests bypass the guard.
+        // Only the router-level `403` case consults this list: the fetch-level
+        // examples build their own `ValidatedTarget` and never see the guard.
         allowed_hosts: vec!["localhost".to_string()],
         max_bytes,
         timeout: Duration::from_secs(timeout_secs),
@@ -75,6 +66,16 @@ fn config(max_bytes: usize, timeout_secs: u64) -> Config {
         rate_burst: 10_000,
         allow_extension: false,
         extra_origins: Vec::new(),
+    }
+}
+
+/// The target the guard would have produced for `name`, `addr` and `path`: the
+/// URL, the allowlisted suffix, and exactly one validated address (loopback).
+fn valid_target(name: &str, addr: SocketAddr, path: &str) -> ValidatedTarget {
+    ValidatedTarget {
+        url: Url::parse(&format!("http://{name}:{}{path}", addr.port())).expect("test URL"),
+        host: ALLOWED_SUFFIX.to_string(),
+        ips: vec![IpAddr::from([127, 0, 0, 1])],
     }
 }
 
@@ -86,15 +87,8 @@ struct Upstream {
 }
 
 impl Upstream {
-    /// The target the guard would have produced: the URL, the allowlisted
-    /// suffix, and exactly one validated address (loopback).
     fn target(&self, path: &str) -> ValidatedTarget {
-        ValidatedTarget {
-            url: Url::parse(&format!("http://{}:{}{path}", self.name, self.addr.port()))
-                .expect("test URL"),
-            host: ALLOWED_SUFFIX.to_string(),
-            ips: vec![IpAddr::from([127, 0, 0, 1])],
-        }
+        valid_target(self.name, self.addr, path)
     }
 
     fn hits(&self) -> usize {
@@ -218,14 +212,6 @@ async fn spawn_endless_chunked_upstream() -> SocketAddr {
     addr
 }
 
-fn raw_target(name: &'static str, addr: SocketAddr) -> ValidatedTarget {
-    ValidatedTarget {
-        url: Url::parse(&format!("http://{name}:{}/raw.ics", addr.port())).expect("test URL"),
-        host: ALLOWED_SUFFIX.to_string(),
-        ips: vec![IpAddr::from([127, 0, 0, 1])],
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Fetch level
 // ---------------------------------------------------------------------------
@@ -301,7 +287,7 @@ async fn a_declared_length_above_the_cap_is_refused_before_reading() {
     .await;
 
     let error = fetch_ics(
-        &raw_target("relay-declared.invalid", addr),
+        &valid_target("relay-declared.invalid", addr, "/raw.ics"),
         &config(1024, 5),
     )
     .await
@@ -317,7 +303,7 @@ async fn a_chunked_body_over_the_cap_aborts_mid_stream() {
     let addr = spawn_endless_chunked_upstream().await;
     let started = Instant::now();
     let error = fetch_ics(
-        &raw_target("relay-chunked.invalid", addr),
+        &valid_target("relay-chunked.invalid", addr, "/raw.ics"),
         &config(2 * 1024 * 1024, 5),
     )
     .await
