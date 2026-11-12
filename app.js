@@ -111,7 +111,7 @@ function migrate(data) {
     ? data.availability.slice()
     : [true, true, true, true, true, false, false];
   s.settings = Object.assign({ skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day', relayUrl: '' }, data.settings || {});
-  /* Relais privé : validé dès la restauration (URL utilisable = sans / final), mais une valeur
+  /* Relais privé : on valide dès la restauration (URL valide = sans / final), mais une valeur
      invalide est conservée telle quelle : buildIcsRoutes la signalera et n'utilisera alors
      aucun relais public. Ancien état sans la clé, valeur non textuelle ou vide → ''
      (aucune clé existante n'est renommée ni supprimée). */
@@ -854,6 +854,7 @@ function openIcsModal() {
   $('#icsAllowProxy').checked = state.settings.allowProxy !== false;
   if (IS_EXTENSION) $('#extSyncNote').classList.remove('hidden');
   renderSyncInfo();
+  renderRelayError($('#icsRelayUrl').value);
   $('#icsModal').showModal();
 }
 function renderSyncInfo() {
@@ -861,10 +862,20 @@ function renderSyncInfo() {
   $('#icsLastSync').textContent = t
     ? 'Dernière synchro : ' + new Date(t).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
     : 'Jamais synchronisé';
-  const relayInput = $('#icsRelayUrl');
-  /* Reflète la valeur normalisée, sans écraser une saisie en cours */
-  if (relayInput && document.activeElement !== relayInput) relayInput.value = state.settings.relayUrl || '';
+  /* #icsRelayUrl n'est rempli qu'à l'ouverture du dialogue (et après un enregistrement réussi) :
+     renderSyncInfo est aussi appelé par la synchro automatique et ne doit jamais écraser
+     une saisie en cours. L'avertissement du champ relais est géré séparément (renderRelayError). */
   $('#icsSyncNowBtn').disabled = !(state.settings.skelloUrl || '').trim();
+}
+/* Signale dans le dialogue un relais enregistré mais inutilisable (URL invalide restaurée). */
+function renderRelayError(raw) {
+  const el = $('#icsRelayError');
+  if (!el) return;
+  const err = relayUrlError(raw);
+  el.textContent = err ? err + ' Aucun relais public ne sera utilisé tant que ce champ est rempli.' : '';
+  el.classList.toggle('hidden', !err);
+  const input = $('#icsRelayUrl');
+  if (input) input.setAttribute('aria-invalid', err ? 'true' : 'false');
 }
 function updateSyncBtn() {
   $('#syncIcsBtn').classList.toggle('hidden', !(state.settings.skelloUrl || '').trim());
@@ -904,16 +915,42 @@ function fetchTextBounded(url, ms, outer) {
 }
 
 /* Relais privé (optionnel) : URL de base normalisée.
-   Réponse : { url: '<base https sans / final>', error: '<message>' }.
-   Vide ou non textuel → aucun relais. http:// refusé (le jeton Skello passerait en clair). */
+   Réponse : { url: '<base sans / final>', error: '<message>' }.
+   Vide ou non textuel → aucun relais.
+   https:// obligatoire ; http:// n'est accepté que pour la boucle locale (localhost,
+   127.0.0.1, [::1]) : c'est le cas d'un relais auto-hébergé sans TLS. Ailleurs le jeton
+   Skello partirait en clair. (Les regex sont locales : migrate() appelle cette fonction
+   pendant l'évaluation du script, avant l'initialisation des constantes du module.) */
 function normalizeRelayUrl(raw) {
   const s = typeof raw === 'string' ? raw.trim().replace(/\/+$/, '') : '';
   if (!s) return { url: '', error: '' };
-  if (/^http:\/\//i.test(s)) {
-    return { url: '', error: 'Relais privé refusé : utilisez https://… (http:// laisserait passer le jeton Skello en clair)' };
+  const m = /^(https?):\/\/([^\s/?#]+)(\/[^\s?#]*)?$/i.exec(s);
+  if (!m) {
+    return { url: '', error: 'Relais privé invalide : indiquez une URL complète https://… (ou http://localhost pour un relais local)' };
   }
-  if (!/^https:\/\/[^\s/?#]+(?:\/[^\s?#]*)?$/i.test(s)) {
-    return { url: '', error: 'Relais privé invalide : l’adresse doit commencer par https://… (sans paramètre ni espace)' };
+  const loopback = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d{1,5}))?$/i.exec(m[2]);
+  if (m[1].toLowerCase() === 'http' && !loopback) {
+    return { url: '', error: 'Relais privé refusé : http:// n’est accepté que pour localhost, 127.0.0.1 ou [::1] (sinon le jeton Skello partirait en clair)' };
+  }
+  if (loopback && loopback[1] && Number(loopback[1]) > 65535) {
+    return { url: '', error: 'Relais privé invalide : le port doit être compris entre 1 et 65535' };
+  }
+  return { url: s, error: '' };
+}
+
+/* Message court pour le champ relais du dialogue (vide si l'URL est utilisable). */
+function relayUrlError(raw) {
+  return typeof raw === 'string' && raw.trim() ? normalizeRelayUrl(raw).error : '';
+}
+
+/* URL Skello : https:// obligatoire à l'enregistrement (le relais privé ne relaie que https,
+   et un relais public récupérerait l'URL et son jeton en clair). Les valeurs déjà enregistrées
+   restent utilisées telles quelles : cette validation ne s'applique qu'à la sauvegarde. */
+function validateSkelloUrl(raw) {
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  if (!s) return { url: '', error: 'Collez l’URL du calendrier Skello' };
+  if (!/^https:\/\/[^\s]+$/i.test(s)) {
+    return { url: '', error: 'URL Skello invalide : elle doit commencer par https://… (cette URL contient un jeton privé)' };
   }
   return { url: s, error: '' };
 }
@@ -1363,8 +1400,8 @@ function init() {
     e.target.value = '';
   });
   $('#icsSaveUrlBtn').addEventListener('click', () => {
-    const u = $('#icsUrl').value.trim();
-    if (!/^https?:\/\//i.test(u)) { toast('URL invalide (elle doit commencer par https://…)', 'error'); return; }
+    const skello = validateSkelloUrl($('#icsUrl').value);
+    if (skello.error) { toast(skello.error, 'error'); return; }
     const relay = normalizeRelayUrl($('#icsRelayUrl').value);
     if (relay.error) {
       toast(relay.error, 'error');
@@ -1372,16 +1409,20 @@ function init() {
       return;
     }
     const hadRelay = !!state.settings.relayUrl;
-    state.settings.skelloUrl = u;
+    state.settings.skelloUrl = skello.url;
     state.settings.relayUrl = relay.url;
     save();
+    /* Reflète la valeur réellement enregistrée (sans / final) : seule écriture autorisée du champ. */
+    $('#icsRelayUrl').value = relay.url;
     renderSyncInfo();
+    renderRelayError(relay.url);
     updateSyncBtn();
     if (relay.url) toast('URL Skello et relais privé enregistrés ✓');
     else toast(hadRelay ? 'URL Skello enregistrée ✓ — relais privé retiré' : 'URL Skello enregistrée ✓ — bouton « ⟳ Sync Skello » activé');
   });
   $('#icsSyncNowBtn').addEventListener('click', () => syncSkello());
   $('#syncIcsBtn').addEventListener('click', () => syncSkello());
+  $('#icsRelayUrl').addEventListener('input', e => renderRelayError(e.target.value));
   $('#icsAllowProxy').addEventListener('change', e => {
     state.settings.allowProxy = e.target.checked;
     save();
