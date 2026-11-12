@@ -41,6 +41,12 @@ pub enum RelayError {
     /// The route exists but not for this method.
     #[error("method_not_allowed")]
     MethodNotAllowed,
+    /// No route matches the request path.
+    #[error("not_found")]
+    NotFound,
+    /// Every fetch slot is busy; `Retry-After: 1` asks for a quick retry.
+    #[error("busy")]
+    Busy,
 }
 
 impl RelayError {
@@ -55,6 +61,8 @@ impl RelayError {
             Self::Timeout => "timeout",
             Self::RateLimited { .. } => "rate_limited",
             Self::MethodNotAllowed => "method_not_allowed",
+            Self::NotFound => "not_found",
+            Self::Busy => "busy",
         }
     }
 
@@ -68,6 +76,8 @@ impl RelayError {
             Self::Timeout => StatusCode::GATEWAY_TIMEOUT,
             Self::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
+            Self::NotFound => StatusCode::NOT_FOUND,
+            Self::Busy => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 
@@ -94,11 +104,19 @@ impl RelayError {
             HeaderValue::from_static("nosniff"),
         );
 
-        if let Self::RateLimited { retry_after_secs } = &self {
-            let secs = (*retry_after_secs).max(1).to_string();
-            if let Ok(value) = HeaderValue::from_str(&secs) {
-                headers.insert(header::RETRY_AFTER, value);
+        match &self {
+            Self::RateLimited { retry_after_secs } => {
+                let secs = (*retry_after_secs).max(1).to_string();
+                if let Ok(value) = HeaderValue::from_str(&secs) {
+                    headers.insert(header::RETRY_AFTER, value);
+                }
             }
+            // One second: the caller is not throttled, only queued behind the
+            // fixed number of concurrent fetches.
+            Self::Busy => {
+                headers.insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+            }
+            _ => {}
         }
 
         if matches!(self, Self::MethodNotAllowed) {
@@ -154,6 +172,8 @@ mod tests {
                 "rate_limited",
             ),
             (RelayError::MethodNotAllowed, 405, "method_not_allowed"),
+            (RelayError::NotFound, 404, "not_found"),
+            (RelayError::Busy, 503, "busy"),
         ];
         for (error, status, code) in cases {
             assert_eq!(error.status().as_u16(), status, "{code}");
@@ -195,6 +215,45 @@ mod tests {
             Some("42")
         );
         assert_eq!(body, "{\"error\":\"rate_limited\"}");
+    }
+
+    #[tokio::test]
+    async fn busy_is_a_503_with_retry_after_one() {
+        let (status, headers, body) = body_of(RelayError::Busy).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            headers
+                .get(header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok()),
+            Some("1")
+        );
+        assert_eq!(body, "{\"error\":\"busy\"}");
+        assert_eq!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some(ERROR_CONTENT_TYPE)
+        );
+    }
+
+    #[tokio::test]
+    async fn not_found_is_a_json_404() {
+        let (status, headers, body) = body_of(RelayError::NotFound).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some(ERROR_CONTENT_TYPE)
+        );
+        assert_eq!(body, "{\"error\":\"not_found\"}");
+        assert_eq!(
+            headers
+                .get(header::X_CONTENT_TYPE_OPTIONS)
+                .and_then(|v| v.to_str().ok()),
+            Some("nosniff")
+        );
+        assert!(headers.get(header::RETRY_AFTER).is_none());
     }
 
     #[tokio::test]

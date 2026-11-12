@@ -43,27 +43,117 @@ pub const USER_AGENT: &str = "Creno-Relay/1.0";
 pub const ACCEPT: &str = "text/calendar, text/plain";
 /// Upper bound on the TCP/TLS handshake, whatever `cfg.timeout` is.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Most host names the [`PinTable`] holds at once.
+///
+/// The table is process-global and serves one fetch per host at a time, so a
+/// handful of entries is the normal case. The cap is what keeps a caller who
+/// walks the allowlisted host space from growing it without bound; past it the
+/// fetch fails closed (`upstream_error`) rather than accepting an unpinned name.
+pub const MAX_PINS: usize = 256;
+
+/// One host's registration: the validated addresses and how many in-flight
+/// fetches currently rely on them.
+#[derive(Debug)]
+struct Pin {
+    ips: Arc<[IpAddr]>,
+    /// Number of live [`PinGuard`]s. The entry dies with the last one.
+    holders: usize,
+}
 
 /// Host → addresses decided by [`crate::guard`], shared by every request.
 ///
 /// This is the client's resolver: it is consulted for **every** name, so an
 /// absent entry is an error rather than a fallback to the system resolver.
+///
+/// The table is *not* a cache: an entry exists only while at least one fetch for
+/// that host is in flight (see [`PinGuard`]), so a completed fetch leaves
+/// nothing behind, and two concurrent fetches of the same name share one entry
+/// instead of overwriting each other's registration.
 #[derive(Debug, Default)]
 struct PinTable {
-    pinned: Mutex<std::collections::HashMap<String, Arc<[IpAddr]>>>,
+    pinned: Mutex<std::collections::HashMap<String, Pin>>,
 }
 
 impl PinTable {
-    /// Records the addresses validated for `name`, replacing any previous pin.
-    fn pin(&self, name: &str, ips: &[IpAddr]) {
+    /// Records the addresses validated for `name` for the caller's lifetime,
+    /// replacing any previous addresses for that name.
+    ///
+    /// Fails with [`RelayError::UpstreamError`] once [`MAX_PINS`] distinct names
+    /// are pinned: growing without bound is a leak, and refusing is the only
+    /// answer that stays fail-closed.
+    fn pin(&self, name: &str, ips: &[IpAddr]) -> Result<PinGuard<'_>, RelayError> {
+        let key = normalise_name(name);
         let mut table = self.pinned.lock().unwrap_or_else(PoisonError::into_inner);
-        table.insert(normalise_name(name), Arc::from(ips));
+
+        if let Some(pin) = table.get_mut(&key) {
+            // Another fetch of the same host is in flight: share its entry (DNS
+            // answers may rotate, both sets were validated by the guard) and
+            // count one more holder, so neither release removes the other's pin.
+            pin.ips = Arc::from(ips);
+            pin.holders += 1;
+            return Ok(PinGuard { table: self, key });
+        }
+
+        if table.len() >= MAX_PINS {
+            return Err(RelayError::UpstreamError);
+        }
+
+        table.insert(
+            key.clone(),
+            Pin {
+                ips: Arc::from(ips),
+                holders: 1,
+            },
+        );
+        Ok(PinGuard { table: self, key })
+    }
+
+    /// Drops one holder of `key`; the entry goes away with its last one.
+    fn release(&self, key: &str) {
+        let mut table = self.pinned.lock().unwrap_or_else(PoisonError::into_inner);
+        let last = match table.get_mut(key) {
+            Some(pin) if pin.holders > 1 => {
+                pin.holders -= 1;
+                false
+            }
+            Some(_) => true,
+            None => false,
+        };
+        if last {
+            table.remove(key);
+        }
     }
 
     /// Addresses for `name`, if the guard pinned this very name.
     fn lookup(&self, name: &str) -> Option<Arc<[IpAddr]>> {
         let table = self.pinned.lock().unwrap_or_else(PoisonError::into_inner);
-        table.get(&normalise_name(name)).cloned()
+        table.get(&normalise_name(name)).map(|pin| pin.ips.clone())
+    }
+
+    /// Number of pinned names (tests and diagnostics).
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.pinned
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
+    }
+}
+
+/// Registration of one host for as long as it is alive.
+///
+/// RAII on purpose: the pin must disappear when the fetch ends **and when it is
+/// cancelled** (the outer `tokio::time::timeout` of [`fetch_ics`] can drop the
+/// future mid-await), which a `release()` after the `.await` would miss.
+#[derive(Debug)]
+struct PinGuard<'a> {
+    table: &'a PinTable,
+    key: String,
+}
+
+impl Drop for PinGuard<'_> {
+    fn drop(&mut self) {
+        self.table.release(&self.key);
     }
 }
 
@@ -164,22 +254,23 @@ pub async fn fetch_ics(target: &ValidatedTarget, cfg: &Config) -> Result<Vec<u8>
 async fn fetch_pinned(target: &ValidatedTarget, cfg: &Config) -> Result<Vec<u8>, RelayError> {
     let shared = shared()?;
 
-    // Pin the *URL host* (not `target.host`, which is the allowlisted suffix and
-    // may be a parent domain) to the addresses the guard checked. TLS keeps
-    // using the URL host for SNI and certificate verification, so pinning the
-    // connection never weakens certificate checks: only the IP is forced.
-    match target.url.host() {
+    // Pin the *URL host* to the addresses the guard checked. The URL host is
+    // also the name TLS verifies (SNI and the certificate), so pinning the
+    // connection never weakens certificate checks: only the IP is forced. The
+    // entry lives exactly as long as this fetch: `_pin` releases it on drop,
+    // including on cancellation.
+    let _pin = match target.url.host() {
         Some(Host::Domain(name)) => {
             if target.ips.is_empty() {
                 return Err(RelayError::UpstreamError);
             }
-            shared.pins.pin(name, &target.ips);
+            Some(shared.pins.pin(name, &target.ips)?)
         }
         // An IP literal needs no pin: there is nothing a DNS answer could
         // change, and hyper connects to it directly.
-        Some(Host::Ipv4(_) | Host::Ipv6(_)) => {}
+        Some(Host::Ipv4(_) | Host::Ipv6(_)) => None,
         None => return Err(RelayError::UpstreamError),
-    }
+    };
 
     let mut response = shared
         .client
@@ -269,7 +360,9 @@ mod tests {
     #[tokio::test]
     async fn pin_table_answers_only_pinned_names() {
         let table = PinTable::default();
-        table.pin("API.Example.COM.", &[IpAddr::from([203, 0, 113, 7])]);
+        let _pin = table
+            .pin("API.Example.COM.", &[IpAddr::from([203, 0, 113, 7])])
+            .expect("pin accepted");
 
         let resolved: Vec<SocketAddr> = table
             .resolve(name("api.example.com"))
@@ -287,13 +380,150 @@ mod tests {
     #[tokio::test]
     async fn an_empty_pin_list_is_an_error() {
         let table = PinTable::default();
-        table.pin("example.com", &[]);
+        let _pin = table.pin("example.com", &[]).expect("pin accepted");
         assert!(table.resolve(name("example.com")).await.is_err());
+    }
+
+    #[test]
+    fn a_finished_fetch_leaves_no_pin_behind() {
+        let table = PinTable::default();
+        {
+            let _pin = table.pin("example.com", &[IpAddr::from([203, 0, 113, 7])]);
+            assert_eq!(table.len(), 1);
+            assert!(table.lookup("example.com").is_some());
+        }
+        assert_eq!(table.len(), 0, "the entry must be pruned on release");
+        assert!(table.lookup("example.com").is_none());
+    }
+
+    #[tokio::test]
+    async fn concurrent_fetches_share_one_entry_and_neither_release_removes_the_other() {
+        let table = PinTable::default();
+        let first = table
+            .pin("example.com", &[IpAddr::from([203, 0, 113, 7])])
+            .expect("pin accepted");
+        let second = table
+            .pin("example.com", &[IpAddr::from([203, 0, 113, 8])])
+            .expect("pin accepted");
+
+        assert_eq!(table.len(), 1, "one host, one entry");
+
+        // The first fetch ending must not unpin the second one.
+        drop(first);
+        assert_eq!(table.len(), 1);
+        assert!(
+            table.lookup("example.com").is_some(),
+            "a finished fetch must not remove another request's pin"
+        );
+        assert!(table.resolve(name("example.com")).await.is_ok());
+
+        drop(second);
+        assert_eq!(table.len(), 0);
+    }
+
+    #[test]
+    fn names_are_capped_and_a_full_table_fails_closed() {
+        let table = PinTable::default();
+        let mut held: Vec<PinGuard<'_>> = Vec::new();
+        for index in 0..MAX_PINS {
+            let name = format!("host{index}.example.com");
+            held.push(
+                table
+                    .pin(&name, &[IpAddr::from([203, 0, 113, 7])])
+                    .expect("room"),
+            );
+        }
+        assert_eq!(table.len(), MAX_PINS);
+
+        // The (MAX_PINS + 1)-th distinct name is refused, not inserted.
+        let error = table
+            .pin(
+                "one-too-many.example.com",
+                &[IpAddr::from([203, 0, 113, 7])],
+            )
+            .expect_err("the table is full");
+        assert_eq!(error, RelayError::UpstreamError);
+        assert_eq!(table.len(), MAX_PINS);
+        assert!(table.lookup("one-too-many.example.com").is_none());
+
+        // Re-pinning a name already present still works: the cap is on distinct
+        // names, not on concurrent fetches.
+        let _again = table
+            .pin("host0.example.com", &[IpAddr::from([203, 0, 113, 7])])
+            .expect("an existing name still has room");
+
+        // Freeing one name makes room for the next one.
+        held.pop();
+        assert!(
+            table
+                .pin(
+                    "one-too-many.example.com",
+                    &[IpAddr::from([203, 0, 113, 7])]
+                )
+                .is_ok()
+        );
     }
 
     #[test]
     fn names_are_normalised() {
         assert_eq!(normalise_name("API.Example.COM."), "api.example.com");
         assert_eq!(normalise_name("example.com"), "example.com");
+    }
+
+    /// Minimal one-shot HTTP/1.1 upstream on loopback, answering `200 ok`.
+    async fn spawn_local_upstream() -> u16 {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind local upstream");
+        let port = listener.local_addr().expect("local address").port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut head = [0_u8; 1024];
+                    let _ = stream.read(&mut head).await;
+                    let _ = stream
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                        .await;
+                    let _ = stream.shutdown().await;
+                });
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn the_fetch_releases_its_pin_and_the_next_fetch_re_pins() {
+        let port = spawn_local_upstream().await;
+        let target = ValidatedTarget {
+            url: url::Url::parse(&format!("http://pin-prune.invalid:{port}/calendar.ics"))
+                .expect("test URL"),
+            host: "pin-prune.invalid".to_string(),
+            ips: vec![IpAddr::from([127, 0, 0, 1])],
+        };
+        let cfg = Config {
+            timeout: Duration::from_secs(5),
+            ..Config::default()
+        };
+
+        assert_eq!(
+            fetch_ics(&target, &cfg).await.expect("local upstream"),
+            b"ok"
+        );
+
+        // The whole point of item 9: a completed fetch leaves the shared table
+        // empty, so it cannot grow with the number of requests, and the next
+        // request is served by its own registration.
+        let pins = &shared().expect("shared client").pins;
+        assert_eq!(
+            pins.len(),
+            0,
+            "the pin must be released when the fetch ends"
+        );
+        assert!(pins.lookup("pin-prune.invalid").is_none());
+
+        assert_eq!(fetch_ics(&target, &cfg).await.expect("second fetch"), b"ok");
+        assert_eq!(pins.len(), 0);
     }
 }

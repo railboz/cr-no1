@@ -4,8 +4,11 @@
 //! * `GET /ics?url=…` — fetch an allowlisted calendar and return it verbatim,
 //!   with a strong `ETag` (sha256 of the body) so the PWA can revalidate.
 //! * `OPTIONS` — answered by [`crate::cors`] before routing.
+//! * anything else — `404 {"error":"not_found"}`, like every other error.
 //!
-//! Errors are always [`crate::error::RelayError`], i.e. `{"error":"<code>"}`.
+//! Errors are always [`crate::error::RelayError`], i.e. `{"error":"<code>"}`,
+//! `Content-Type: application/json; charset=utf-8`: there is no bodiless
+//! response and no `text/plain` fallback anywhere in the router.
 
 use axum::Router;
 use axum::body::Body;
@@ -56,6 +59,16 @@ async fn ics(
     RawQuery(raw_query): RawQuery,
 ) -> Result<Response, RelayError> {
     let url = extract_url(raw_query.as_deref())?;
+    // A pure parameter check first: a malformed request must never be answered
+    // "busy" because the relay happens to be saturated. From here on the
+    // request does I/O (DNS, then TLS), so it takes one of the
+    // [`crate::MAX_CONCURRENT_FETCHES`] slots — without waiting, so a burst is
+    // shed instead of exhausting the task pool.
+    let _permit = state
+        .permits
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| RelayError::Busy)?;
     let target = guard::validate_target(&url, &state.cfg).await?;
     let body = upstream::fetch_ics(&target, &state.cfg).await?;
 
@@ -173,12 +186,19 @@ fn etag_header(etag: &str) -> HeaderValue {
 }
 
 /// Weak comparison against a possibly comma-separated `If-None-Match` value.
+///
+/// `*` matches any current representation (RFC 9110 §13.1.2): `/ics` only runs
+/// when it can produce a representation, so `If-None-Match: *` means "I already
+/// have this calendar" and revalidates with a `304`.
 pub fn matches_etag(if_none_match: Option<&str>, etag: &str) -> bool {
     let Some(raw) = if_none_match else {
         return false;
     };
     raw.split(',').any(|candidate| {
         let candidate = candidate.trim();
+        if candidate == "*" {
+            return true;
+        }
         let candidate = candidate.strip_prefix("W/").unwrap_or(candidate);
         candidate == etag
     })
@@ -192,13 +212,14 @@ async fn method_not_allowed(method: Method) -> Response {
     RelayError::MethodNotAllowed.into_response()
 }
 
-/// Unknown path: 404, and a bare 204 for a preflight on an unknown path so a
-/// browser gets a clean CORS answer instead of a routing error.
+/// Unknown path: a JSON `404 {"error":"not_found"}`, and a bare 204 for a
+/// preflight on an unknown path so a browser gets a clean CORS answer instead of
+/// a routing error.
 async fn not_found(method: Method) -> Response {
     if method == Method::OPTIONS {
         return options_response();
     }
-    StatusCode::NOT_FOUND.into_response()
+    RelayError::NotFound.into_response()
 }
 
 fn options_response() -> Response {
@@ -227,12 +248,41 @@ mod tests {
             rate_limit_per_minute: 1000,
             rate_burst: 1000,
             allow_extension: false,
+            allow_file_origin: false,
             extra_origins: vec!["https://app.example.fr".to_string()],
         }
     }
 
     fn state() -> AppState {
         AppState::new(config())
+    }
+
+    /// State whose config lets a `file://` document (`Origin: null`) through.
+    fn state_allow_file_origin() -> AppState {
+        AppState::new(Config {
+            allow_file_origin: true,
+            ..config()
+        })
+    }
+
+    async fn call_with(state: AppState, request: Request<Body>) -> Reply {
+        let response = crate::app(state)
+            .oneshot(request)
+            .await
+            .expect("infallible");
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body collects")
+            .to_bytes();
+        Reply {
+            status,
+            headers,
+            body: String::from_utf8_lossy(&bytes).into_owned(),
+        }
     }
 
     struct Reply {
@@ -317,6 +367,97 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn query_parsing_ambiguities_are_pinned() {
+        // The contract spells these four out; each one is a way a caller could
+        // try to smuggle a second target or a different decoding past the relay.
+
+        // 1. A duplicated `url` keeps the **first** occurrence (and the first
+        //    one is refused here, before any DNS: a hermetic assertion).
+        let reply = call(get(
+            "/ics?url=not+a+url&url=https%3A%2F%2Fapi.skello.io%2Fics",
+        ))
+        .await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "first value wins");
+        assert_eq!(reply.body, r#"{"error":"invalid_url"}"#);
+
+        // 2. `+` is a space, not a plus: a lone `+` decodes to a blank value,
+        //    which is trimmed away and reads as missing.
+        let reply = call(get("/ics?url=+")).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+        assert_eq!(reply.body, r#"{"error":"missing_url"}"#);
+
+        //    A literal plus therefore has to be sent as `%2B`, and reaches the
+        //    guard as a URL that does not parse.
+        let reply = call(get("/ics?url=%2B")).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+        assert_eq!(reply.body, r#"{"error":"invalid_url"}"#);
+
+        // 3. The parameter name is case-sensitive: `URL` is not `url`.
+        let reply = call(get("/ics?URL=https%3A%2F%2Fapi.skello.io%2Fics")).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+        assert_eq!(reply.body, r#"{"error":"missing_url"}"#);
+
+        // 4. An empty `url=` is missing, not invalid.
+        let reply = call(get("/ics?url=")).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+        assert_eq!(reply.body, r#"{"error":"missing_url"}"#);
+
+        //    ...and so is a value made only of whitespace, which the trim would
+        //    otherwise pass on to the guard as an empty URL.
+        let reply = call(get("/ics?url=%20%20")).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+        assert_eq!(reply.body, r#"{"error":"missing_url"}"#);
+    }
+
+    #[tokio::test]
+    async fn a_saturated_relay_is_a_503_busy_but_keeps_answering_healthz() {
+        let state = state();
+        // Hold every permit, exactly as sixteen in-flight `/ics` would.
+        let held: Vec<_> = (0..crate::MAX_CONCURRENT_FETCHES)
+            .map(|_| {
+                state
+                    .permits
+                    .clone()
+                    .try_acquire_owned()
+                    .expect("free slot")
+            })
+            .collect();
+        assert!(state.permits.clone().try_acquire_owned().is_err());
+
+        // `/healthz` takes no permit: liveness survives saturation.
+        let reply = call_with(state.clone(), get("/healthz")).await;
+        assert_eq!(reply.status, StatusCode::OK);
+        assert_eq!(reply.body, r#"{"status":"ok"}"#);
+
+        // A parameter error is still decided before the permit, so a malformed
+        // request is never told "busy".
+        let reply = call_with(state.clone(), get("/ics")).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+        assert_eq!(reply.body, r#"{"error":"missing_url"}"#);
+
+        // A real fetch has no slot left: shed, with a JSON body and Retry-After.
+        let encoded: String =
+            url::form_urlencoded::byte_serialize(b"https://api.skello.io/ics").collect();
+        let reply = call_with(state.clone(), get(&format!("/ics?url={encoded}"))).await;
+        assert_eq!(reply.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(reply.body, r#"{"error":"busy"}"#);
+        assert_eq!(
+            header(&reply, header::CONTENT_TYPE).as_deref(),
+            Some("application/json; charset=utf-8")
+        );
+        assert_eq!(header(&reply, header::RETRY_AFTER).as_deref(), Some("1"));
+
+        // Releasing one slot lets the request through again: it now reaches the
+        // guard, which refuses a foreign host before any DNS.
+        drop(held.into_iter().next());
+        let encoded: String =
+            url::form_urlencoded::byte_serialize(b"https://evil.example/ics").collect();
+        let reply = call_with(state, get(&format!("/ics?url={encoded}"))).await;
+        assert_eq!(reply.status, StatusCode::FORBIDDEN);
+        assert_eq!(reply.body, r#"{"error":"forbidden_host"}"#);
+    }
+
+    #[tokio::test]
     async fn ics_with_valid_length_url_reaches_the_guard() {
         // A well-formed URL of a legal length still goes through the guard. The
         // host is outside the allowlist, so the guard refuses it before any
@@ -360,14 +501,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unknown_path_is_404() {
-        let reply = call(get("/nope")).await;
-        assert_eq!(reply.status, StatusCode::NOT_FOUND);
-        assert!(reply.body.is_empty());
+    async fn unknown_path_is_a_json_404() {
+        for uri in ["/nope", "/ics/extra", "/"] {
+            let reply = call(get(uri)).await;
+            assert_eq!(reply.status, StatusCode::NOT_FOUND, "{uri}");
+            assert_eq!(reply.body, r#"{"error":"not_found"}"#, "{uri}");
+            assert_eq!(
+                header(&reply, header::CONTENT_TYPE).as_deref(),
+                Some("application/json; charset=utf-8"),
+                "{uri}"
+            );
+            assert_eq!(
+                header(&reply, header::X_CONTENT_TYPE_OPTIONS).as_deref(),
+                Some("nosniff"),
+                "{uri}"
+            );
+        }
     }
 
     #[tokio::test]
-    async fn preflight_answers_204_with_a_null_origin() {
+    async fn a_known_path_still_wins_over_the_fallback() {
+        // The 404 must come from routing, not from a swallowed handler: the two
+        // real paths keep their own answers.
+        assert_eq!(call(get("/healthz")).await.status, StatusCode::OK);
+        assert_eq!(call(get("/ics")).await.status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn preflight_answers_204_with_a_null_origin_when_enabled() {
         let request = Request::builder()
             .method(Method::OPTIONS)
             .uri("/ics")
@@ -375,7 +536,7 @@ mod tests {
             .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
             .body(Body::empty())
             .expect("request builds");
-        let reply = call(request).await;
+        let reply = call_with(state_allow_file_origin(), request).await;
         assert_eq!(reply.status, StatusCode::NO_CONTENT);
         assert!(reply.body.is_empty());
         assert_eq!(
@@ -402,6 +563,36 @@ mod tests {
             .expect("request builds");
         let reply = call(request).await;
         assert_eq!(reply.status, StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn file_origin_is_refused_until_it_is_enabled() {
+        let request = || {
+            Request::builder()
+                .uri("/healthz")
+                .header(header::ORIGIN, "null")
+                .body(Body::empty())
+                .expect("request builds")
+        };
+
+        // Default (`CRENO_ALLOW_FILE_ORIGIN=0`): served, but no CORS grant, so
+        // the browser refuses to hand the body to the `file://` page.
+        let reply = call(request()).await;
+        assert_eq!(reply.status, StatusCode::OK);
+        assert!(header(&reply, header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
+        assert!(header(&reply, header::ACCESS_CONTROL_EXPOSE_HEADERS).is_none());
+        assert!(
+            header(&reply, header::VARY)
+                .unwrap_or_default()
+                .contains("Origin")
+        );
+
+        // Opted in: the exact `null` origin is echoed, never `*`.
+        let reply = call_with(state_allow_file_origin(), request()).await;
+        assert_eq!(
+            header(&reply, header::ACCESS_CONTROL_ALLOW_ORIGIN).as_deref(),
+            Some("null")
+        );
     }
 
     #[tokio::test]
@@ -437,13 +628,13 @@ mod tests {
         assert!(header(&reply, header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
         assert!(header(&reply, header::ACCESS_CONTROL_EXPOSE_HEADERS).is_none());
 
-        // `null` (file://) is allowed, and the answer is never `*`.
+        // `null` (file://) needs the opt-in flag, and the answer is never `*`.
         let request = Request::builder()
             .uri("/healthz")
             .header(header::ORIGIN, "null")
             .body(Body::empty())
             .expect("request builds");
-        let reply = call(request).await;
+        let reply = call_with(state_allow_file_origin(), request).await;
         assert_eq!(
             header(&reply, header::ACCESS_CONTROL_ALLOW_ORIGIN).as_deref(),
             Some("null")
@@ -498,6 +689,14 @@ mod tests {
     #[test]
     fn if_none_match_comparison() {
         let etag = etag_for(b"calendar");
+        // RFC 9110 §13.1.2: `*` matches any current representation, and may
+        // appear inside a list.
+        assert!(matches_etag(Some("*"), &etag));
+        assert!(matches_etag(Some(" * "), &etag));
+        assert!(matches_etag(Some("*,"), &etag));
+        assert!(matches_etag(Some("\"other\", *"), &etag));
+        // A bare `*` is not a tag, so it never equals a tag literally.
+        assert!(!matches_etag(Some("\"*\""), &etag));
         assert!(matches_etag(Some(&etag), &etag));
         assert!(matches_etag(Some(&format!("W/{etag}")), &etag));
         assert!(matches_etag(Some(&format!("\"other\", {etag}")), &etag));

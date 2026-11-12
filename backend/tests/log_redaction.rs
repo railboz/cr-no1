@@ -41,6 +41,29 @@ async fn get(uri: &str) -> (StatusCode, Vec<u8>) {
     (status, bytes)
 }
 
+/// Sends a CORS preflight, the one body-less answer the router produces.
+async fn preflight(uri: &str) -> (StatusCode, Vec<u8>) {
+    let response = app(AppState::new(Config::default()))
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri(uri)
+                .header("Origin", "http://localhost:5173")
+                .header("Access-Control-Request-Method", "GET")
+                .body(Body::empty())
+                .expect("request builds"),
+        )
+        .await
+        .expect("infallible");
+    let status = response.status();
+    let bytes = http_body_util::BodyExt::collect(response.into_body())
+        .await
+        .expect("body collects")
+        .to_bytes()
+        .to_vec();
+    (status, bytes)
+}
+
 #[tokio::test]
 async fn request_log_never_contains_the_target_url() {
     let sink = logs();
@@ -98,15 +121,36 @@ async fn request_log_reports_the_real_response_size() {
     );
     assert!(!line.contains("bytes=0"), "bytes must not be 0: {line}");
 
-    // A body-less answer still logs 0, and still leaks nothing.
+    // An unknown path answers a JSON `404`, and the log carries that body's
+    // real size (the router has no bodiless error any more).
+    const NOT_FOUND: &[u8] = br#"{"error":"not_found"}"#;
     let (status, body) = get("/nope").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(body.is_empty());
+    assert_eq!(body, NOT_FOUND);
     let logs = sink.contents();
     let line = logs
         .lines()
         .find(|line| line.contains("path=/nope") && line.contains("status=404"))
         .unwrap_or_else(|| panic!("no /nope log line: {logs}"));
     println!("404 log line: {line}");
+    assert!(
+        line.contains(&format!("bytes={}", NOT_FOUND.len())),
+        "the log must carry the {} body bytes: {line}",
+        NOT_FOUND.len()
+    );
+
+    // A genuinely body-less answer (preflight) still logs 0, and leaks nothing.
+    let (status, body) = get("/healthz").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.is_empty());
+    let (status, body) = preflight("/healthz").await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(body.is_empty());
+    let logs = sink.contents();
+    let line = logs
+        .lines()
+        .find(|line| line.contains("path=/healthz") && line.contains("status=204"))
+        .unwrap_or_else(|| panic!("no preflight log line: {logs}"));
+    println!("204 log line: {line}");
     assert!(line.contains("bytes=0"), "empty body logs 0 bytes: {line}");
 }

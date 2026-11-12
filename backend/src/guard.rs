@@ -20,7 +20,10 @@
 //! 4. **Resolution** — the name is resolved *here*, once, and **every** address
 //!    must be global unicast. A single private answer poisons the whole name
 //!    (a DNS round-robin mixing `10.0.0.1` and a public address would otherwise
-//!    let the fetch land inside the LAN).
+//!    let the fetch land inside the LAN). The step is bounded by
+//!    `min(cfg.timeout, `[`DNS_TIMEOUT_CAP`]`)`: a resolver that never answers
+//!    must not hold the axum task (and its blocking-pool thread) for ever, which
+//!    would take `/healthz` down with the rest of the process.
 //! 5. **Pinning** — the resolved addresses travel with the [`ValidatedTarget`],
 //!    so the fetch never resolves the name again.
 //!
@@ -34,6 +37,7 @@
 //! | empty `url` parameter | [`RelayError::MissingUrl`] | 400 |
 //! | not an absolute URL, longer than [`MAX_TARGET_LEN`], carries a fragment, embeds credentials, or names a port other than 443 | [`RelayError::InvalidUrl`] | 400 |
 //! | scheme is not `https`, an IP literal, a name outside the allowlist, a name that does not resolve, no address, or a non-global address | [`RelayError::ForbiddenHost`] | 403 |
+//! | the resolver does not answer within `min(cfg.timeout, 5 s)` | [`RelayError::Timeout`] | 504 |
 //!
 //! The rationale: `invalid_url` means "this string is not a calendar URL we can
 //! work with" — a fragment, userinfo or a non-standard port makes it a URL of
@@ -47,6 +51,7 @@ use std::future::Future;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use ipnet::{Ipv4Net, Ipv6Net};
 use url::{Host, Url};
@@ -63,12 +68,28 @@ pub const HTTPS_PORT: u16 = 443;
 /// Mirrors the `/ics` `url` parameter limit of the contract (2048 bytes) and is
 /// re-checked here so the guard stays safe whatever the caller enforces.
 pub const MAX_TARGET_LEN: usize = 2048;
+/// Hard cap on the resolution step, whatever `CRENO_TIMEOUT_SECS` is.
+///
+/// A stuck resolver (dead upstream DNS, black-holed query) would otherwise hold
+/// the axum task for ever: `/healthz` stops answering, the Docker healthcheck
+/// flips the container to `unhealthy`, and a blocking-pool thread is never
+/// returned. Resolution therefore gets `min(cfg.timeout, DNS_TIMEOUT_CAP)` and
+/// a blow-through maps to `timeout` (504), exactly like a slow fetch.
+pub const DNS_TIMEOUT_CAP: Duration = Duration::from_secs(5);
+
+/// Deadline granted to the resolution step.
+fn dns_budget(cfg: &Config) -> Duration {
+    cfg.timeout.min(DNS_TIMEOUT_CAP)
+}
 
 /// A request target that passed every check.
 ///
 /// `url` is the normalised absolute URL, `host` the DNS name that matched the
 /// allowlist, and `ips` the addresses the connection must be pinned to.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Debug` is hand-written: the URL carries the calendar token in its query
+/// string, so a future `?target` in a log line must never print it.
+#[derive(Clone, PartialEq, Eq)]
 pub struct ValidatedTarget {
     /// Normalised absolute URL (`https` only, no credentials, no fragment,
     /// implicit port, lowercase host without a trailing dot).
@@ -78,6 +99,19 @@ pub struct ValidatedTarget {
     /// Resolved addresses, sorted and de-duplicated; the upstream client must
     /// connect to one of these and never resolve `host` again.
     pub ips: Vec<IpAddr>,
+}
+
+/// Debug rendering deliberately excludes the URL: it carries the private token
+/// (`https://api.skello.io/ics/<id>?token=…`) and the relay must not be one
+/// `tracing::debug!(?target)` away from logging it. Only the allowlisted host
+/// and the pinned addresses are printable.
+impl std::fmt::Debug for ValidatedTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ValidatedTarget")
+            .field("host", &self.host)
+            .field("ips", &self.ips)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Validates the raw `url` query parameter against `cfg`.
@@ -140,9 +174,15 @@ where
     // like a private address, and the caller gets one uniform negative answer
     // (403) instead of an oracle telling "blocked" apart from "nonexistent".
     // `upstream_error` stays for failures of the fetch itself.
-    let mut ips = resolve(host.clone(), port)
-        .await
-        .map_err(|_| RelayError::ForbiddenHost)?;
+    //
+    // The wait is bounded: a resolver that never answers is a `timeout` (504),
+    // not an unbounded task.
+    let mut ips = match tokio::time::timeout(dns_budget(cfg), resolve(host.clone(), port)).await {
+        // Any resolution error is treated as "cannot prove it is public".
+        Ok(Ok(ips)) => ips,
+        Ok(Err(_)) => return Err(RelayError::ForbiddenHost),
+        Err(_elapsed) => return Err(RelayError::Timeout),
+    };
 
     if ips.is_empty() {
         return Err(RelayError::ForbiddenHost);
@@ -704,6 +744,91 @@ mod tests {
             .await
             .expect("duplicates are fine");
         assert_eq!(duplicated.ips, ips(&[PUBLIC_V4]));
+    }
+
+    #[test]
+    fn debug_never_prints_the_token_bearing_url() {
+        const TOKEN: &str = "s3cr3t-token-6f1a2f83";
+        let target = ValidatedTarget {
+            url: Url::parse(&format!(
+                "https://api.skello.io/ics/abc/calendar.ics?token={TOKEN}"
+            ))
+            .expect("test URL"),
+            host: "api.skello.io".to_string(),
+            ips: ips(&[PUBLIC_V4]),
+        };
+
+        let rendered = format!("{target:?}");
+        assert!(rendered.contains("api.skello.io"), "{rendered}");
+        assert!(rendered.contains(PUBLIC_V4), "{rendered}");
+        assert!(
+            !rendered.contains(TOKEN),
+            "token leaked in Debug: {rendered}"
+        );
+        assert!(
+            !rendered.contains("token"),
+            "query leaked in Debug: {rendered}"
+        );
+        assert!(
+            !rendered.contains("calendar.ics"),
+            "path leaked in Debug: {rendered}"
+        );
+        assert!(!rendered.contains("https://"), "URL leaked: {rendered}");
+        // `ips` is still a plain list, so a debug line stays diagnosable.
+        assert!(
+            rendered.starts_with("ValidatedTarget { host: \"api.skello.io\""),
+            "{rendered}"
+        );
+        assert!(rendered.ends_with(".. }"), "{rendered}");
+    }
+
+    #[tokio::test]
+    async fn a_hanging_resolver_is_a_timeout_not_an_endless_wait() {
+        let mut cfg = cfg(&["api.skello.io"]);
+        // A tiny budget keeps the test fast; production floors `CRENO_TIMEOUT_SECS`
+        // at 1 s, and the 5 s cap is asserted below.
+        cfg.timeout = Duration::from_millis(20);
+
+        let started = std::time::Instant::now();
+        let result = validate_with_resolver(
+            "https://api.skello.io/ics",
+            &cfg,
+            |_host: String, _port| async {
+                // A resolver that never answers, like a black-holed DNS query.
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                Ok(ips(&[PUBLIC_V4]))
+            },
+        )
+        .await;
+
+        assert_eq!(result, Err(RelayError::Timeout));
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "the guard must give up on the resolver, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn the_resolution_budget_is_the_smaller_of_the_request_timeout_and_the_cap() {
+        // Default `CRENO_TIMEOUT_SECS=12` is above the cap, so DNS never gets
+        // more than five seconds.
+        assert_eq!(dns_budget(&Config::default()), DNS_TIMEOUT_CAP);
+        assert_eq!(DNS_TIMEOUT_CAP, Duration::from_secs(5));
+
+        // A tighter request timeout tightens the resolution budget with it.
+        let tight = Config {
+            timeout: Duration::from_secs(2),
+            ..Config::default()
+        };
+        assert_eq!(dns_budget(&tight), Duration::from_secs(2));
+
+        // The maximum accepted `CRENO_TIMEOUT_SECS` cannot widen it either.
+        let wide = Config {
+            timeout: Duration::from_secs(120),
+            ..Config::default()
+        };
+        assert_eq!(dns_budget(&wide), DNS_TIMEOUT_CAP);
     }
 
     #[test]

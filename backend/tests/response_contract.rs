@@ -181,6 +181,9 @@ async fn a_foreign_if_none_match_is_a_200_again() {
 // `routes::matches_etag` implements **weak comparison**, which is what RFC 9110
 // §13.1.2 mandates for `If-None-Match` on `GET`: the `W/` prefix is ignored, the
 // value may be a comma-separated list, and surrounding whitespace is trimmed.
+// The bare `*` is the RFC 9110 §13.1.1 wildcard ("represent the current
+// representation"), so it always revalidates to a `304`; the quoted `"*"` is an
+// ordinary opaque tag and does not.
 // Two spellings are *not* normalised, and the tests below pin that too:
 //
 // * a lowercase `w/` prefix is not the RFC 9110 weak marker (it is
@@ -191,6 +194,11 @@ async fn a_foreign_if_none_match_is_a_200_again() {
 async fn weak_and_multi_value_if_none_match_revalidate() {
     let etag = body_etag();
     let accepted = [
+        // RFC 9110 §13.1.1: `*` matches any current representation, so a
+        // cached copy is always revalidated into a `304`.
+        "*".to_string(),
+        "*,".to_string(),
+        "\"sha256-other\", *".to_string(),
         etag.clone(),
         format!("W/{etag}"),
         format!("{etag}, \"sha256-other\""),
@@ -222,7 +230,8 @@ async fn malformed_or_unrelated_if_none_match_values_do_not_revalidate() {
         format!("\"sha256-{}\"", "0".repeat(64)),
         // Absence and emptiness.
         String::new(),
-        "*".to_string(),
+        // A quoted star is an opaque tag, not the wildcard.
+        "\"*\"".to_string(),
     ];
 
     for candidate in refused {

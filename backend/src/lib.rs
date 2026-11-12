@@ -24,9 +24,18 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::middleware;
+use tokio::sync::Semaphore;
 
 use crate::config::Config;
 use crate::ratelimit::RateLimiter;
+
+/// Fetches allowed to run at the same time.
+///
+/// `/ics` holds one permit for the whole guard + fetch, and asks for it without
+/// waiting: the 17th concurrent request gets `503 {"error":"busy"}` (with
+/// `Retry-After: 1`) instead of piling up. `/healthz` never takes a permit, so a
+/// saturated relay still answers its liveness probe.
+pub const MAX_CONCURRENT_FETCHES: usize = 16;
 
 /// Shared state handed to every handler.
 #[derive(Debug, Clone)]
@@ -35,6 +44,8 @@ pub struct AppState {
     pub cfg: Arc<Config>,
     /// Per-IP token bucket.
     pub limiter: Arc<RateLimiter>,
+    /// Concurrency cap of the fetches (see [`MAX_CONCURRENT_FETCHES`]).
+    pub permits: Arc<Semaphore>,
 }
 
 impl AppState {
@@ -44,6 +55,7 @@ impl AppState {
         Self {
             cfg: Arc::new(cfg),
             limiter: Arc::new(limiter),
+            permits: Arc::new(Semaphore::new(MAX_CONCURRENT_FETCHES)),
         }
     }
 }
