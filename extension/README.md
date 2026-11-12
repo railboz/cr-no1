@@ -1,8 +1,8 @@
 # Créno — extension Firefox
 
-**Manifest V2** (Firefox 115+) : ouvrir l'app Créno dans un onglet, avec un
-périmètre réseau minimal — l'app elle-même, plus `https://api.skello.io/*` pour
-la sync ICS directe.
+**Manifest V2**, version 1.1.1 (Firefox 115+) : ouvrir l'app Créno dans un
+onglet, avec un périmètre réseau minimal — l'app elle-même, plus
+`https://api.skello.io/*` pour la sync ICS directe.
 
 ## Permissions demandées
 
@@ -23,26 +23,28 @@ l'ancien.
 ## Confidentialité
 
 La synchronisation part **directement** vers `https://api.skello.io` : aucune
-donnée de planning n'est envoyée ailleurs par l'extension.
+donnée de planning n'est envoyée ailleurs par l'extension. Le relais privé est
+**optionnel** ; le champ « Relais privé » peut rester vide.
 
-Nuance sur les relais, à connaître avant d'activer l'option : l'app essaie les
-routes dans l'ordre direct → relais privé (si une URL est configurée) → relais
-publics (allorigins, corsproxy, codetabs) **si `allowProxy` est activé**.
+Ordre des tentatives, à connaître avant de configurer un relais :
 
-- `allowProxy` désactivé : jamais de relais public, quel que soit le réglage du
-  relais privé. Seuls le direct et, s'il est configuré, le relais privé sont
-  contactés.
-- `allowProxy` activé et relais privé qui répond correctement : l'ICS arrive du
-  relais privé, les relais publics ne sont jamais contactés.
-- `allowProxy` activé sans relais privé, ou avec un relais privé qui échoue
-  (erreur HTTP, réponse non-ICS) : l'app retombe sur les relais publics, et
-  l'URL Skello + le contenu de l'ICS transitent alors par un tiers. Cette option
-  n'existe que pour les réseaux qui bloquent l'accès direct ; la laisser
-  désactivée garantit qu'aucune donnée ne sort vers un relais public.
+- **Relais privé configuré** (`relayUrl` renseigné) : `direct` → relais privé, et
+  **arrêt**. Aucun relais public n'est contacté, même avec `allowProxy` activé
+  (`allowProxy` ne joue alors aucun rôle).
+- **Relais configuré mais en échec** (injoignable, erreur HTTP, réponse non-ICS)
+  ou **invalide** (ex. `http://` hors loopback) : la chaîne s'arrête là — si
+  `direct` échoue aussi, une erreur explicite s'affiche. Jamais de repli public,
+  donc aucune fuite vers un tiers.
+- **Aucun relais configuré** (`relayUrl` vide) : `direct`, puis relais publics
+  (allorigins, corsproxy, codetabs) **uniquement si `allowProxy` est activé**.
+  C'est le seul cas où un tiers voit l'URL Skello (et son jeton) et l'ICS ; la
+  laisser désactivée garantit qu'aucune donnée ne sort.
 
 L'extension ne déclare aucune permission d'hôte vers ces relais publics : leur
 usage dépend de leurs en-têtes CORS, pas d'un accès privilégié accordé à
-l'extension.
+l'extension. Si le relais est le backend Créno, il faut y autoriser l'origine
+`moz-extension://` avec `CRENO_ALLOW_EXTENSION=1`, sinon la requête est bloquée
+par le navigateur.
 
 ## Limites dans l'extension
 
