@@ -79,29 +79,41 @@ Un petit service Rust (fourni dans `backend/`) peut aller chercher votre calendr
 
 ### Lancer le relais
 
-Prérequis : Rust 1.85 ou plus (`cargo`). Aucune image Docker n'est fournie à ce jour.
+**Docker (recommandé)** — depuis la racine du dépôt :
+
+```bash
+cp deploy/.env.example deploy/.env          # facultatif : les défauts suffisent
+docker compose -f deploy/compose.yml up -d
+curl -sS http://127.0.0.1:8080/healthz      # {"status":"ok"}
+```
+
+L'image (Alpine, binaire statique, uid 10001) tourne sans privilèges : disque racine en lecture seule, toutes les capabilities retirées, `no-new-privileges`, `/tmp` en mémoire, journaux plafonnés (10 Mio × 3 fichiers). Le port n'est publié que sur la boucle locale (`127.0.0.1:8080`) : pour l'exposer, laissez-le ainsi et terminez le TLS devant (`relais.example.fr { reverse_proxy 127.0.0.1:8080 }` avec Caddy — exemple complet dans `backend/README.md`).
+
+**Sans Docker** (Rust 1.85 ou plus) :
 
 ```bash
 cd backend
-cargo run --release
-# → écoute sur http://127.0.0.1:8080
+cargo run --release                         # → écoute sur http://127.0.0.1:8080
 ```
 
-Par défaut il n'écoute que sur la boucle locale et ne récupère que sur `api.skello.io`. Réglages par variables d'environnement (défauts du code) :
+Mêmes variables `CRENO_*` dans les deux cas, avec les défauts du code ci-dessous. En Docker, réglez-les dans `deploy/.env` (chargé automatiquement par Compose) : les deux que l'on change le plus sont `CRENO_ALLOWED_ORIGINS` (origine exacte de la page Créno) et `CRENO_ALLOWED_HOSTS`. N'y remettez pas `CRENO_BIND=127.0.0.1:8080` : dans le conteneur l'écoute doit rester `0.0.0.0:8080`, c'est la publication du port qui la limite à la boucle locale. Par défaut le relais ne récupère que sur `api.skello.io`.
 
 | Variable | Défaut | Rôle |
 | --- | --- | --- |
-| `CRENO_BIND` | `127.0.0.1:8080` | adresse d'écoute |
+| `CRENO_BIND` | `127.0.0.1:8080` | adresse d'écoute (`0.0.0.0:8080` en conteneur) |
 | `CRENO_ALLOWED_HOSTS` | `api.skello.io` | hôtes autorisés (suffixes séparés par des virgules) |
 | `CRENO_MAX_BYTES` | `2097152` (2 Mio) | taille maximale du calendrier récupéré |
 | `CRENO_TIMEOUT_SECS` | `12` | délai maximal côté Skello |
 | `CRENO_RATE_LIMIT` | `30` | requêtes par minute et par IP (rafale 10) |
 | `CRENO_ALLOW_EXTENSION` | `0` | autorise l'origine `moz-extension://` (extension Firefox) |
 | `CRENO_ALLOWED_ORIGINS` | *(vide)* | origines CORS exactes autorisées en plus de `localhost` |
+| `RUST_LOG` | `info` | verbosité des journaux (`debug` pour diagnostiquer) |
 
 `GET /healthz` répond `{"status":"ok"}` : de quoi vérifier que le service tourne.
 
-> ⚠️ **Origine de la page** : le navigateur n'appelle le relais que si l'origine de Créno lui est déclarée. `file://` et un serveur local (`http://localhost:8080`) sont acceptés d'office ; pour une page en ligne, ajoutez son origine exacte, par exemple `CRENO_ALLOWED_ORIGINS=https://votre-pseudo.github.io cargo run --release`.
+> ⚠️ **Origine de la page** : le navigateur n'appelle le relais que si l'origine de Créno lui est déclarée. `file://` et un serveur local (`http://localhost:8080`) sont acceptés d'office ; pour une page en ligne, ajoutez son origine exacte — `CRENO_ALLOWED_ORIGINS=https://votre-pseudo.github.io` dans `deploy/.env`, ou en préfixe de `cargo run --release` sans Docker.
+
+Contrat d'API, dépannage et durcissement détaillés : `backend/README.md`.
 
 ### Activer le relais dans l'app
 
