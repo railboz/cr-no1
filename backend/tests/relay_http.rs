@@ -65,6 +65,7 @@ fn config(max_bytes: usize, timeout_secs: u64) -> Config {
         rate_limit_per_minute: 10_000,
         rate_burst: 10_000,
         allow_extension: false,
+        allow_file_origin: false,
         extra_origins: Vec::new(),
     }
 }
