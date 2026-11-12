@@ -4,8 +4,9 @@
 #   (ou, recommandé : docker compose -f deploy/compose.yml up -d --build)
 #
 # The release binary is linked statically against musl, so the runtime stage can
-# be Alpine instead of debian:bookworm-slim (28 MB compressed, ~78 MB unpacked):
-# the final image is ~5.5 MB unpacked (3.1 MB of it is the binary). aws-lc-rs,
+# be Alpine instead of debian:bookworm-slim (28 MB compressed, ~78 MB unpacked).
+# The final image is in the region of 7 MB unpacked, static binary included:
+# measure it with `docker image inspect -f '{{.Size}}'`. aws-lc-rs,
 # pulled in by reqwest 0.13 + rustls, is C code: cmake and a C toolchain are
 # needed in the builder stage only and never ship.
 #
