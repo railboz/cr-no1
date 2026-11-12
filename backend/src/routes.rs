@@ -59,15 +59,46 @@ async fn ics(
     let target = guard::validate_target(&url, &state.cfg).await?;
     let body = upstream::fetch_ics(&target, &state.cfg).await?;
 
-    let etag = etag_for(&body);
     let if_none_match = headers
         .get(header::IF_NONE_MATCH)
         .and_then(|value| value.to_str().ok());
 
+    Ok(calendar_response(body, if_none_match))
+}
+
+/// Builds the `/ics` response for an upstream body and an `If-None-Match` value.
+///
+/// This is the whole HTTP contract of a successful fetch (`CONTRACT.md`):
+///
+/// * `200` with the body verbatim, [`ICS_CONTENT_TYPE`], the strong ETag of
+///   those bytes, [`ICS_CACHE_CONTROL`] and `X-Content-Type-Options: nosniff`.
+/// * `304` with no body when the header revalidates the same bytes; the ETag
+///   and the cache/nosniff headers are kept so the client can trust its copy.
+///
+/// Pure: no I/O, no clock, no allocation beyond the ETag. Public so the
+/// contract can be tested from an integration test without an upstream.
+///
+/// The body is taken by value so the success path never copies it: the bytes
+/// have already been buffered by [`crate::upstream::fetch_ics`].
+///
+/// ```
+/// use creno_relay::routes::calendar_response;
+///
+/// let body = b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n".to_vec();
+/// let fresh = calendar_response(body.clone(), None);
+/// assert_eq!(fresh.status(), 200);
+///
+/// // Replaying the ETag of those exact bytes revalidates the copy.
+/// let etag = fresh.headers()["etag"].to_str().expect("ascii etag").to_string();
+/// let replayed = calendar_response(body, Some(&etag));
+/// assert_eq!(replayed.status(), 304);
+/// ```
+pub fn calendar_response(body: Vec<u8>, if_none_match: Option<&str>) -> Response {
+    let etag = etag_for(&body);
+
     if matches_etag(if_none_match, &etag) {
         let mut response = StatusCode::NOT_MODIFIED.into_response();
         let parts = response.headers_mut();
-        parts.insert(header::ETAG, etag_header(&etag));
         parts.insert(
             header::CACHE_CONTROL,
             HeaderValue::from_static(ICS_CACHE_CONTROL),
@@ -76,7 +107,8 @@ async fn ics(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),
         );
-        return Ok(response);
+        parts.insert(header::ETAG, etag_header(&etag));
+        return response;
     }
 
     let mut response = (
@@ -89,7 +121,6 @@ async fn ics(
     )
         .into_response();
     let parts = response.headers_mut();
-    parts.insert(header::ETAG, etag_header(&etag));
     parts.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static(ICS_CACHE_CONTROL),
@@ -98,7 +129,8 @@ async fn ics(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    Ok(response)
+    parts.insert(header::ETAG, etag_header(&etag));
+    response
 }
 
 /// Reads the single `url` parameter out of the raw query string.
