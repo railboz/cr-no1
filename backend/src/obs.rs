@@ -65,12 +65,7 @@ pub async fn log_requests(request: Request, next: Next) -> Response {
     let response = next.run(request).await;
 
     let status = response.status().as_u16();
-    let bytes = response
-        .headers()
-        .get(header::CONTENT_LENGTH)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or_default();
+    let bytes = response_body_len(&response);
     let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     tracing::info!(
@@ -84,6 +79,27 @@ pub async fn log_requests(request: Request, next: Next) -> Response {
     );
 
     response
+}
+
+/// Size of the body about to be written back to the client.
+///
+/// The app never sets `Content-Length` on its own responses (hyper fills it in
+/// later, when serialising), so the body's own size hint is the reliable
+/// source: it is `Some` for every response this router builds (`Body::from`,
+/// `Body::empty`). A streaming body has no exact size; its declared
+/// `Content-Length`, if any, is the fallback, and `0` the last resort.
+fn response_body_len(response: &Response) -> u64 {
+    use axum::body::HttpBody as _;
+
+    if let Some(exact) = response.body().size_hint().exact() {
+        return exact;
+    }
+    response
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
