@@ -1,19 +1,21 @@
 # Créno relay — auto-hébergement.
 #
-#   cd deploy
-#   cp ../backend/.env.example .env     # facultatif : les défauts suffisent
-#   docker compose up -d --build
+#   cp deploy/.env.example deploy/.env  # facultatif : les défauts suffisent
+#   docker compose -f deploy/compose.yml up -d --build
 #   curl -sS http://127.0.0.1:8080/healthz
 #
-# Le relais est sans état : aucun volume, rien n'est écrit sur le disque.
-# Tout est piloté par l'environnement (voir backend/CONTRACT.md).
+# Les variables sont lues dans deploy/.env (non versionné, voir
+# deploy/.env.example, seule source de vérité). Le relais est sans état : aucun
+# volume, rien n'est écrit sur le disque. Tout est piloté par l'environnement,
+# défauts documentés dans backend/CONTRACT.md.
 name: creno-relay
 
 services:
   relay:
     build: ../backend
     # Tag versionné (version de la crate) : pas de :latest implicite.
-    image: creno-relay:0.1.0
+    # Surchargeable via CRENO_IMAGE (deploy/.env) pour publier/épingler une image.
+    image: ${CRENO_IMAGE:-creno-relay:0.1.0}
     restart: unless-stopped
     # Boucle locale uniquement : c'est un reverse proxy TLS (Caddy, nginx,
     # Traefik) qui publie le service, jamais Docker. Pour un test sur le LAN,
@@ -23,7 +25,14 @@ services:
     environment:
       # Défauts documentés de CONTRACT.md ; surcharge via deploy/.env
       # (non versionné, chargé automatiquement par Compose).
-      CRENO_BIND: ${CRENO_BIND:-0.0.0.0:8080}
+      #
+      # Fixé, jamais interpolé : à l'intérieur du conteneur l'écoute doit rester
+      # 0.0.0.0:8080, sinon la publication `ports:` ne joint plus rien (le
+      # conteneur resterait "healthy" — la sonde passe par la boucle interne —
+      # mais serait injoignable depuis l'hôte). L'exposition côté hôte se règle
+      # uniquement par `ports:`. Un CRENO_BIND resté dans deploy/.env est donc
+      # sans effet, et sans danger.
+      CRENO_BIND: 0.0.0.0:8080
       CRENO_ALLOWED_HOSTS: ${CRENO_ALLOWED_HOSTS:-api.skello.io}
       CRENO_MAX_BYTES: ${CRENO_MAX_BYTES:-2097152}
       CRENO_TIMEOUT_SECS: ${CRENO_TIMEOUT_SECS:-12}
@@ -41,6 +50,9 @@ services:
       retries: 3
     # Durcissement : disque en lecture seule, aucun privilège, aucune
     # capability ; /tmp en mémoire pour ce qui en aurait besoin.
+    # user explicite (déjà l'USER de l'image) : le durcissement reste vrai même
+    # si CRENO_IMAGE pointe vers une image reconstruite.
+    user: "10001:10001"
     read_only: true
     tmpfs:
       - /tmp:size=8m,mode=1777

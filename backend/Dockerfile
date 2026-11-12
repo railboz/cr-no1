@@ -1,6 +1,7 @@
 # Créno relay — production image.
-#   build : docker build -t creno-relay backend
-#   run   : docker run --rm -p 127.0.0.1:8080:8080 creno-relay
+#   build : docker build -t creno-relay:0.1.0 backend
+#   run   : docker run --rm -p 127.0.0.1:8080:8080 creno-relay:0.1.0
+#   (ou, recommandé : docker compose -f deploy/compose.yml up -d --build)
 #
 # The release binary is linked statically against musl, so the runtime stage can
 # be Alpine instead of debian:bookworm-slim (28 MB compressed, ~78 MB unpacked):

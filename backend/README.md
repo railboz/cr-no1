@@ -17,20 +17,21 @@ débit est par IP, pas un contrôle d'accès.
 ## Démarrage rapide — Docker
 
 ```sh
-docker build -t creno-relay:0.1.0 backend                       # ~6 Mo, uid 10001
-docker run -d --name relay -p 127.0.0.1:8080:8080 \
-  -e CRENO_BIND=0.0.0.0:8080 creno-relay:0.1.0
-curl -sS http://127.0.0.1:8080/healthz                          # {"status":"ok"}
-docker logs -f relay                                            # journaux sur stdout
+docker build -t creno-relay:0.1.0 backend    # 5,55 Mo, uid 10001, Alpine statique
+docker run -d --name relay -p 127.0.0.1:8080:8080 creno-relay:0.1.0
+curl -sS http://127.0.0.1:8080/healthz       # {"status":"ok"}
+docker logs -f relay                         # journaux sur stdout
 ```
 
-Avec Compose (lecture seule, capabilities retirées, journaux plafonnés) :
+L'image fixe déjà `CRENO_BIND=0.0.0.0:8080` : ne le surchargez pas en
+`127.0.0.1`, le conteneur resterait « healthy » mais injoignable depuis l'hôte.
+Pour un usage réel, préférez Compose (lecture seule, capabilities retirées,
+journaux plafonnés) :
 
 ```sh
-cd deploy
-cp ../backend/.env.example .env      # facultatif : les défauts suffisent
-docker compose up -d --build
-docker compose ps                    # Status: Up (healthy)
+cp deploy/.env.example deploy/.env    # facultatif : les défauts suffisent
+docker compose -f deploy/compose.yml up -d --build
+docker compose -f deploy/compose.yml ps   # Status: Up (healthy)
 ```
 
 ## Démarrage rapide — sans Docker
@@ -43,18 +44,27 @@ curl -sS http://127.0.0.1:8080/healthz
 
 ## Configuration (environnement uniquement)
 
+Les deux variables que l'on modifie en pratique sont **`CRENO_ALLOWED_HOSTS`**
+(domaine de l'ICS amont) et **`CRENO_ALLOWED_ORIGINS`** (domaine qui sert la
+page Créno) ; tout le reste tient sur des défauts raisonnables.
+
 | Variable | Défaut | Rôle |
 | --- | --- | --- |
-| `CRENO_BIND` | `127.0.0.1:8080` | adresse d'écoute (`0.0.0.0:8080` en conteneur) |
+| `CRENO_BIND` | `127.0.0.1:8080` | adresse d'écoute (en conteneur : `0.0.0.0:8080`, fixé par l'image et `deploy/compose.yml`) |
 | `CRENO_ALLOWED_HOSTS` | `api.skello.io` | suffixes d'hôtes amont autorisés, séparés par des virgules |
+| `CRENO_ALLOWED_ORIGINS` | *(vide)* | origines exactes supplémentaires, séparées par des virgules |
 | `CRENO_MAX_BYTES` | `2097152` | taille max du corps amont (1 KiB à 64 MiB) |
 | `CRENO_TIMEOUT_SECS` | `12` | délai amont maximal (1 à 120) |
 | `CRENO_RATE_LIMIT` | `30` | requêtes/min par IP (rafale 10) |
 | `CRENO_ALLOW_EXTENSION` | `0` | `1` = accepter `moz-extension://` (extension Firefox) |
-| `CRENO_ALLOWED_ORIGINS` | *(vide)* | origines exactes supplémentaires, séparées par des virgules |
 | `RUST_LOG` | `info` | verbosité des journaux (`debug` pour diagnostiquer) |
 
-Exemple prêt à copier : [`.env.example`](.env.example). Une valeur invalide
+Une seule source de vérité pour les fichiers d'environnement :
+[`deploy/.env.example`](../deploy/.env.example), copié en `deploy/.env`
+(non versionné, chargé par Compose). [`backend/.env.example`](.env.example) ne
+sert qu'au lancement natif (`cargo run`, variables à exporter : le binaire ne
+lit aucun fichier `.env`) et n'a rien à faire dans `deploy/.env`. Aucun secret
+n'y est attendu : le relais ne stocke ni compte ni jeton. Une valeur invalide
 arrête le service au démarrage (code 2) avec un message explicite.
 
 ## Brancher l'app dessus
@@ -83,7 +93,9 @@ l'hôte, le proxy gère le certificat et le HTTPS.
 Allowlist stricte des hôtes (`api.skello.io` par défaut), refus des cibles
 privées/loopback (anti-SSRF), plafond de 2 Mio, délai de 12 s, 30 req/min par
 IP. Image Alpine statique (musl), uid 10001 sans shell, sans capability, sans
-écriture disque, CA système pour valider le TLS amont.
+écriture disque, CA système pour valider le TLS amont ; aucun outil de
+compilation n'y est copié (le binaire arrive seul depuis l'étage de build) et
+aucun secret n'y est stocké.
 
 ## Dépannage
 
@@ -94,4 +106,5 @@ IP. Image Alpine statique (musl), uid 10001 sans shell, sans capability, sans
 | `502 upstream_error` | Skello a échoué ou refusé : URL expirée, jeton révoqué, panne amont |
 | `504 timeout` | amont plus lent que `CRENO_TIMEOUT_SECS` |
 | requête bloquée côté navigateur (CORS) | origine non autorisée (`CRENO_ALLOWED_ORIGINS`) ou `CRENO_ALLOW_EXTENSION=0` avec l'extension |
-| conteneur `unhealthy` | `CRENO_BIND` resté sur `127.0.0.1` : la sonde interne ne joint plus le port |
+| conteneur `healthy` mais `curl` depuis l'hôte refusé | `CRENO_BIND=127.0.0.1` a été forcé dans l'environnement du conteneur : la sonde interne passe (boucle locale), la publication `ports:` non. Retirer la variable, l'image et Compose fixent `0.0.0.0:8080` |
+| conteneur `unhealthy` | processus arrêté au démarrage (variable invalide, code 2) : voir `docker logs` |
