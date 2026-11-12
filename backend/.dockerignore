@@ -1,0 +1,11 @@
+# Build context: backend/. Only Cargo.toml, Cargo.lock and src/ are needed.
+target/
+.git/
+.gitignore
+tests/
+*.md
+*.log
+.env
+.env.*
+Dockerfile
+.dockerignore
