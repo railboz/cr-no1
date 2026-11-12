@@ -1,0 +1,63 @@
+# Créno relay — auto-hébergement.
+#
+#   cd deploy
+#   cp ../backend/.env.example .env     # facultatif : les défauts suffisent
+#   docker compose up -d --build
+#   curl -sS http://127.0.0.1:8080/healthz
+#
+# Le relais est sans état : aucun volume, rien n'est écrit sur le disque.
+# Tout est piloté par l'environnement (voir backend/CONTRACT.md).
+name: creno-relay
+
+services:
+  relay:
+    build: ../backend
+    # Tag versionné (version de la crate) : pas de :latest implicite.
+    image: creno-relay:0.1.0
+    restart: unless-stopped
+    # Boucle locale uniquement : c'est un reverse proxy TLS (Caddy, nginx,
+    # Traefik) qui publie le service, jamais Docker. Pour un test sur le LAN,
+    # remplacer par "8080:8080" en connaissance de cause (HTTP en clair).
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Défauts documentés de CONTRACT.md ; surcharge via deploy/.env
+      # (non versionné, chargé automatiquement par Compose).
+      CRENO_BIND: ${CRENO_BIND:-0.0.0.0:8080}
+      CRENO_ALLOWED_HOSTS: ${CRENO_ALLOWED_HOSTS:-api.skello.io}
+      CRENO_MAX_BYTES: ${CRENO_MAX_BYTES:-2097152}
+      CRENO_TIMEOUT_SECS: ${CRENO_TIMEOUT_SECS:-12}
+      CRENO_RATE_LIMIT: ${CRENO_RATE_LIMIT:-30}
+      CRENO_ALLOW_EXTENSION: ${CRENO_ALLOW_EXTENSION:-0}
+      CRENO_ALLOWED_ORIGINS: ${CRENO_ALLOWED_ORIGINS:-}
+      # Verbosité des journaux (info par défaut, debug pour diagnostiquer).
+      RUST_LOG: ${RUST_LOG:-info}
+    # wget (busybox) est dans l'image : sonde HTTP réelle sur /healthz.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    # Durcissement : disque en lecture seule, aucun privilège, aucune
+    # capability ; /tmp en mémoire pour ce qui en aurait besoin.
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 10s
+    # Les journaux ne doivent jamais pouvoir remplir le disque.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    networks:
+      - relay
+
+networks:
+  relay:
+    name: creno-relay
