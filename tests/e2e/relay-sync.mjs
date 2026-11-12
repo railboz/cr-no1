@@ -32,6 +32,11 @@ const SK_ORIGIN = 'https://api.skello.io';
 const SK_URL = SK_ORIGIN + '/users/qa/feeds/ics/test';
 const RELAY_ORIGIN = 'https://relay.test';
 const RELAY_ICS_URL = RELAY_ORIGIN + '/ics?url=' + encodeURIComponent(SK_URL);
+/* Loopback relay: plain http:// is accepted only for localhost / 127.0.0.1 / [::1]. */
+const LOOPBACK_RELAY_ORIGIN = 'http://127.0.0.1:8080';
+const LOOPBACK_ICS_URL = LOOPBACK_RELAY_ORIGIN + '/ics?url=' + encodeURIComponent(SK_URL);
+/* http:// on a non-loopback host must be refused outright (token would travel in clear). */
+const INVALID_RELAY_ORIGIN = 'http://relais.local';
 const PUBLIC = {
   allorigins: 'https://api.allorigins.win/raw?url=' + encodeURIComponent(SK_URL),
   corsproxy: 'https://corsproxy.io/?url=' + encodeURIComponent(SK_URL),
@@ -181,6 +186,9 @@ async function runCase(browser, base, spec) {
   const unexpected = [];
   const seed = spec.seed;
   const baselineLastSync = seed.settings.lastIcsSync;
+  /* Relay base used by this scenario (https by default, loopback for case H). */
+  const relayBase = spec.relayBase || RELAY_ORIGIN;
+  const allowed = [...ALLOWED_EXTERNAL, relayBase + '/', ...(spec.extraAllowed || [])];
 
   const context = await browser.newContext({
     serviceWorkers: 'block', locale: 'fr-FR', timezoneId: 'Europe/Paris',
@@ -201,7 +209,7 @@ async function runCase(browser, base, spec) {
     if (url.startsWith(base + '/')) return route.continue();
     if (!url.startsWith('http')) return route.continue();
 
-    const hostOk = ALLOWED_EXTERNAL.some(p => url.startsWith(p));
+    const hostOk = allowed.some(p => url.startsWith(p));
     if (!hostOk) {
       unexpected.push(url);
       return route.fulfill({ status: 204, body: '', headers: { 'access-control-allow-origin': '*' } });
@@ -213,11 +221,15 @@ async function runCase(browser, base, spec) {
       headers: { 'access-control-allow-origin': '*', 'access-control-expose-headers': '*' },
     });
 
+    /* Case I: the private relay never answers. The app must abandon it on its
+       own budget; stalling the route keeps the request pending exactly that long. */
+    if (spec.hangRelay && url.startsWith(relayBase + '/')) return new Promise(() => {});
+
     if (url.startsWith(SK_ORIGIN)) {
       if (spec.direct === 'ics') return fulfill(200, ICS_BODY);
       return route.abort('failed'); // direct blocked: relays must take over
     }
-    if (url.startsWith(RELAY_ORIGIN)) {
+    if (url.startsWith(relayBase + '/')) {
       if (spec.relay === 'ics') return fulfill(200, ICS_BODY);
       if (spec.relay === 'html') return fulfill(200, HTML_BODY, 'text/html');
       if (spec.relay === '403') return fulfill(403, FORBIDDEN_JSON, 'application/json');
@@ -229,6 +241,10 @@ async function runCase(browser, base, spec) {
       if (spec.publicMode === 'html') return fulfill(200, HTML_BODY, 'text/html');
       return fulfill(503, 'relay unavailable', 'text/plain');
     }
+    /* Allowed for observation only (e.g. a relay base that must never be contacted). */
+    if ((spec.extraAllowed || []).some(p => url.startsWith(p))) {
+      return fulfill(503, 'relay not configured in this scenario', 'text/plain');
+    }
     unexpected.push(url);
     return fulfill(204, '', 'text/plain');
   });
@@ -237,13 +253,35 @@ async function runCase(browser, base, spec) {
     await page.goto(base + '/index.html', { waitUntil: 'load' });
     await page.waitForFunction(() => typeof syncSkello === 'function' && typeof state !== 'undefined');
 
-    await page.evaluate(async () => {
-      openIcsModal();
-      document.getElementById('icsSyncNowBtn').click();
-      const t0 = Date.now();
-      while (icsSyncing && Date.now() - t0 < 30000) await new Promise(r => setTimeout(r, 25));
-      await new Promise(r => setTimeout(r, 100)); // let the final toast render
-    });
+    /* Fake clock: advance virtual time instead of waiting for real seconds (case I). */
+    let clock = null;
+    if (spec.fakeClock) {
+      await page.clock.install();
+      const realStart = Date.now();
+      await page.evaluate(() => {
+        openIcsModal();
+        document.getElementById('icsSyncNowBtn').click();
+      });
+      let virtualMs = 0;
+      while (virtualMs < 45_000) {
+        await page.clock.runFor(1000);
+        virtualMs += 1000;
+        if (!(await page.evaluate(() => icsSyncing))) break;
+      }
+      clock = {
+        virtualMs,
+        realMs: Date.now() - realStart,
+        finished: !(await page.evaluate(() => icsSyncing)),
+      };
+    } else {
+      await page.evaluate(async () => {
+        openIcsModal();
+        document.getElementById('icsSyncNowBtn').click();
+        const t0 = Date.now();
+        while (icsSyncing && Date.now() - t0 < 30000) await new Promise(r => setTimeout(r, 25));
+        await new Promise(r => setTimeout(r, 100)); // let the final toast render
+      });
+    }
 
     const snap = await page.evaluate(() => ({
       shifts: state.shifts.length,
@@ -255,18 +293,21 @@ async function runCase(browser, base, spec) {
     }));
 
     const fail = (label, detail) => failures.push({ label, detail });
-    const relayMissing = !requests.some(u => u.startsWith(RELAY_ORIGIN + '/'));
+    const relayMissing = !requests.some(u => u.startsWith(relayBase + '/'));
     const errorToast = snap.toasts.filter(t => /\berror\b/.test(t.cls) && t.text);
 
     /* --- graceful signal while agent/app-relay is not merged --- */
     if (spec.relayDependent && relayMissing) {
       fail('relay route not present (agent/app-relay not merged)',
-        `relayUrl configured as ${RELAY_ORIGIN}; observed: ${requests.map(short).join(' -> ') || '(none)'}`);
+        `relayUrl configured as ${relayBase}; observed: ${requests.map(short).join(' -> ') || '(none)'}`);
     } else {
-      spec.assert({ requests, unexpected, snap, fail, baselineLastSync, errorToast });
+      spec.assert({ requests, unexpected, snap, fail, baselineLastSync, errorToast, clock });
     }
 
     for (const u of unexpected) fail('unexpected external request (network must stay offline)', u);
+    if (clock) {
+      console.log(`     [case ${spec.id}] sync ended after ${clock.virtualMs} ms fake time / ${clock.realMs} ms real time`);
+    }
     return { failures, requests, missingRelay: spec.relayDependent && relayMissing };
   } finally {
     await context.close();
@@ -277,6 +318,8 @@ async function runCase(browser, base, spec) {
 const HOST_LABELS = {
   'api.skello.io': 'direct',
   'relay.test': 'private-relay',
+  '127.0.0.1': 'loopback-relay',
+  'relais.local': 'invalid-relay',
   'api.allorigins.win': 'allorigins',
   'corsproxy.io': 'corsproxy',
   'api.codetabs.com': 'codetabs',
@@ -304,6 +347,27 @@ function expectUrls(fail, requests, expected) {
 function expectImported(fail, snap, label) {
   if (snap.shifts !== 1) fail(`${label}: shifts imported`, `expected 1 shift, got ${snap.shifts}`);
   if (!(snap.lastIcsSync > 0)) fail(`${label}: lastIcsSync set`, `lastIcsSync=${snap.lastIcsSync}`);
+}
+
+function expectNoImport(fail, snap, baselineLastSync, label) {
+  if (snap.shifts !== 0) fail(`${label}: no shift imported`, `shifts=${snap.shifts}`);
+  if (snap.lastIcsSync !== baselineLastSync) fail(`${label}: lastIcsSync unchanged`, `${snap.lastIcsSync} != ${baselineLastSync}`);
+}
+
+/* The privacy contract: once relayUrl is configured, a public relay is never contacted. */
+function expectNoPublicRelay(fail, requests) {
+  const leaked = requests.filter(u => isPublicRelay(u));
+  if (leaked.length) {
+    fail('public relay must never be called when relayUrl is configured (privacy leak)',
+      leaked.map(short).join(', '));
+  }
+}
+
+function expectErrorToast(fail, snap, label) {
+  const toasts = snap.toasts.map(t => `${t.cls}: ${t.text}`).join(' | ');
+  if (!snap.toasts.some(t => /\berror\b/.test(t.cls) && t.text)) {
+    fail(`${label}: user-visible error toast`, toasts || '(no toast)');
+  }
 }
 
 function caseF(snap, fail) {
@@ -362,22 +426,24 @@ const CASES = [
   },
   {
     id: 'D1', relayDependent: true,
-    title: 'private relay returns 403 JSON + allowProxy: falls through to public relays',
+    title: 'private relay 403 + allowProxy: no public fallback, visible error, exactly [direct, privé]',
     seed: seedData({ relayUrl: RELAY_ORIGIN }), relay: '403', publicMode: 'allorigins-ics',
-    assert({ requests, snap, fail }) {
-      expectUrls(fail, requests, [SK_URL, RELAY_ICS_URL, PUBLIC.allorigins]);
-      expectImported(fail, snap, '403 fallback import');
+    assert({ requests, snap, fail, baselineLastSync, errorToast }) {
+      expectUrls(fail, requests, [SK_URL, RELAY_ICS_URL]);
+      expectNoImport(fail, snap, baselineLastSync, 'relay 403');
+      expectErrorToast(fail, snap, 'relay 403');
+      expectNoPublicRelay(fail, requests);
     },
   },
   {
     id: 'D2', relayDependent: true,
-    title: 'private relay returns 403 JSON + allowProxy=false: clean error, no public relay',
+    title: 'private relay 403 + allowProxy=false: same chain [direct, privé], visible error, no public relay',
     seed: seedData({ relayUrl: RELAY_ORIGIN, allowProxy: false }), relay: '403', publicMode: 'fail',
-    assert({ requests, snap, fail, baselineLastSync, errorToast }) {
+    assert({ requests, snap, fail, baselineLastSync }) {
       expectUrls(fail, requests, [SK_URL, RELAY_ICS_URL]);
-      if (snap.shifts !== 0) fail('no import expected', `shifts=${snap.shifts}`);
-      if (snap.lastIcsSync !== baselineLastSync) fail('lastIcsSync unchanged', `${snap.lastIcsSync} != ${baselineLastSync}`);
-      if (!errorToast.length) fail('user-visible error toast', snap.toasts.map(t => `${t.cls}: ${t.text}`).join(' | ') || '(no toast)');
+      expectNoImport(fail, snap, baselineLastSync, 'relay 403 + allowProxy=false');
+      expectErrorToast(fail, snap, 'relay 403 + allowProxy=false');
+      expectNoPublicRelay(fail, requests);
     },
   },
   {
@@ -401,6 +467,51 @@ const CASES = [
       expectUrls(fail, requests, [SK_URL]);
       if (snap.shifts !== 1) fail('direct import used for schema check', `expected 1 shift, got ${snap.shifts}`);
       caseF(snap, fail);
+    },
+  },
+  {
+    id: 'G', relayDependent: false,
+    title: 'invalid relay http://relais.local + allowProxy: direct only, error, relay never contacted, no public relay',
+    seed: seedData({ relayUrl: INVALID_RELAY_ORIGIN }), relay: null, publicMode: 'fail',
+    extraAllowed: [INVALID_RELAY_ORIGIN + '/'],
+    assert({ requests, snap, fail, baselineLastSync }) {
+      expectUrls(fail, requests, [SK_URL]);
+      expectNoImport(fail, snap, baselineLastSync, 'invalid relay');
+      expectErrorToast(fail, snap, 'invalid relay');
+      expectNoPublicRelay(fail, requests);
+      if (requests.some(u => u.startsWith(INVALID_RELAY_ORIGIN + '/'))) {
+        fail('invalid relayUrl must not be contacted', INVALID_RELAY_ORIGIN);
+      }
+    },
+  },
+  {
+    id: 'H',
+    title: 'loopback relay http://127.0.0.1:8080 accepted: [direct, privé], import, no public relay',
+    seed: seedData({ relayUrl: LOOPBACK_RELAY_ORIGIN }),
+    relayBase: LOOPBACK_RELAY_ORIGIN, relay: 'ics', publicMode: 'fail',
+    assert({ requests, snap, fail, baselineLastSync }) {
+      expectUrls(fail, requests, [SK_URL, LOOPBACK_ICS_URL]);
+      expectImported(fail, snap, 'loopback relay import');
+      if (!(snap.lastIcsSync > baselineLastSync)) fail('lastIcsSync advanced after import', `${snap.lastIcsSync} <= ${baselineLastSync}`);
+      expectNoPublicRelay(fail, requests);
+    },
+  },
+  {
+    id: 'I', relayDependent: true, fakeClock: true,
+    title: 'global sync budget: hanging private relay abandoned before 25 s (fake clock), error, no public relay',
+    seed: seedData({ relayUrl: RELAY_ORIGIN }), relay: 'ics', hangRelay: true, publicMode: 'fail',
+    assert({ requests, snap, fail, baselineLastSync, clock }) {
+      expectUrls(fail, requests, [SK_URL, RELAY_ICS_URL]);
+      expectNoImport(fail, snap, baselineLastSync, 'sync budget');
+      expectErrorToast(fail, snap, 'sync budget');
+      expectNoPublicRelay(fail, requests);
+      if (!clock || !clock.finished) {
+        fail('sync must give up on its own', `still running after ${clock ? clock.virtualMs : '?'} ms of fake time`);
+      } else {
+        if (clock.virtualMs < 8_000) fail('sync budget too short', `gave up after ${clock.virtualMs} ms`);
+        if (clock.virtualMs > 25_000) fail('sync budget too long', `still running after ${clock.virtualMs} ms (expected ≤ 25 s)`);
+        if (clock.realMs > 10_000) fail('fake timers must keep the suite fast', `${clock.realMs} ms of real time`);
+      }
     },
   },
 ];
