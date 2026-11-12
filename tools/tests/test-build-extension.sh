@@ -79,8 +79,14 @@ grep -q 'manifest.webmanifest' "$C1/extension/index.html"
 rc=$?; refute "index.html généré sans manifest.webmanifest" "$rc"
 grep -qE 'serviceWorker|sw\.js' "$C1/extension/app.js"
 rc=$?; refute "app.js généré sans service worker" "$rc"
-unzip -p "$Z1" manifest.json | python3 -c 'import json,sys; m=json.load(sys.stdin); assert m["version"]=="1.1.0" and m["manifest_version"]==2'
-rc=$?; check "manifeste embarqué v1.1.0 / MV2" "$rc"
+unzip -p "$Z1" manifest.json | python3 -c 'import json,sys; m=json.load(sys.stdin); assert m["version"]=="1.1.1" and m["manifest_version"]==2'
+rc=$?; check "manifeste embarqué v1.1.1 / MV2" "$rc"
+unzip -p "$Z1" manifest.json | python3 -c 'import json,sys; m=json.load(sys.stdin); assert m["permissions"]==["storage","https://api.skello.io/*"], m["permissions"]'
+rc=$?; check "permissions exactes (storage + api.skello.io, sans tabs)" "$rc"
+unzip -p "$Z1" background.js | grep -q 'tabs\.query'
+rc=$?; refute "background.js généré sans tabs.query" "$rc"
+unzip -p "$Z1" background.js | grep -q 'browser\.tabs\.get('
+rc=$?; check "background.js réutilise l'onglet mémorisé (tabs.get)" "$rc"
 
 echo "== 2. Reproductibilité (deux builds) =="
 build_in "$C1" >/dev/null 2>&1

@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Créno — Votre planning, simplement",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Planning d'horaires 100 % local : shifts, absences, statistiques et salaire estimé. Synchronisation Skello directe et privée (ICS), sans relais public.",
   "author": "Logan BOZIER",
   "icons": {
@@ -9,7 +9,7 @@
     "512": "icons/icon-512.png"
   },
   "permissions": [
-    "tabs",
+    "storage",
     "https://api.skello.io/*"
   ],
   "browser_action": {

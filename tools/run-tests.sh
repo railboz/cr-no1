@@ -4,9 +4,11 @@
 #   bash tools/run-tests.sh
 #
 # Suites: syntax (node --check), app relay E2E (real browser + route interception),
-#         extension package (static zip validation; SKIP until built).
+#         extension package (builds the zip itself; SKIP only if tools/build-extension.sh
+#         is absent).
 # Env: CRENO_REPO, CRENO_BROWSER, PLAYWRIGHT_MODULE (forwarded to the E2E harness).
-# Exit: 0 every executed suite passed, 1 at least one failed. A SKIP is not a failure.
+# Exit: 0 every executed suite passed, 1 at least one failed. A SKIP is not a failure,
+#       but it is counted and printed separately: it is not a pass.
 
 set -uo pipefail
 
@@ -29,7 +31,7 @@ record() { # record <PASS|FAIL|SKIP> <label> <detail>
 
 # ---------------------------------------------------------------- syntax
 SYNTAX_OK=1
-for f in app.js tests/e2e/relay-sync.mjs tests/extension/check.mjs; do
+for f in app.js extension/background.js tests/e2e/relay-sync.mjs tests/extension/check.mjs; do
   if ! node --check "$f"; then
     echo "  syntax error: $f"
     SYNTAX_OK=0
@@ -40,7 +42,7 @@ if ! bash -n tools/run-tests.sh; then
   SYNTAX_OK=0
 fi
 if [ "$SYNTAX_OK" -eq 1 ]; then
-  record PASS "syntax (node --check app.js + 2 harness files, bash -n run-tests.sh)"
+  record PASS "syntax (node --check app.js + background.js + 2 harness files, bash -n run-tests.sh)"
 else
   record FAIL "syntax"
 fi
@@ -64,9 +66,10 @@ EXT_OUT=$(node tests/extension/check.mjs 2>&1)
 EXT_RC=$?
 printf '%s\n' "$EXT_OUT"
 if [ "$EXT_RC" -eq 0 ]; then
-  # check.mjs exits 0 both for PASS and for its explicit SKIP line.
+  # check.mjs exits 0 both for PASS and for its explicit SKIP line
+  # (SKIP = tools/build-extension.sh absent, not a pass).
   if printf '%s\n' "$EXT_OUT" | grep -q '^SKIP '; then
-    record SKIP "extension package (not built yet)"
+    record SKIP "extension package (build script absent)"
   else
     record PASS "extension package"
   fi
@@ -75,10 +78,7 @@ else
 fi
 
 echo "----------------------------------------------------------------"
-printf '%d/%d suites passed' "$PASSED" "$TOTAL"
-[ "$FAILED" -gt 0 ] && printf ' (%d failed' "$FAILED" || printf ' (0 failed'
-[ "$SKIPPED" -gt 0 ] && printf ', %d skipped' "$SKIPPED"
-printf ')\n'
+printf '%d passed, %d failed, %d skipped (of %d suites)\n' "$PASSED" "$FAILED" "$SKIPPED" "$TOTAL"
 
 [ "$FAILED" -eq 0 ] || exit 1
 exit 0
