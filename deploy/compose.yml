@@ -49,6 +49,10 @@ services:
     cap_drop:
       - ALL
     stop_grace_period: 10s
+    # Le relais est un petit client HTTP : 128 Mio et 128 threads suffisent
+    # largement et bornent un emballement (fuite mémoire, boucle de requêtes).
+    mem_limit: 128m
+    pids_limit: 128
     # Les journaux ne doivent jamais pouvoir remplir le disque.
     logging:
       driver: json-file

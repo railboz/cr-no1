@@ -4,9 +4,9 @@
 #
 # The release binary is linked statically against musl, so the runtime stage can
 # be Alpine instead of debian:bookworm-slim (28 MB compressed, ~78 MB unpacked):
-# the final image is ~9 MB unpacked. aws-lc-rs, pulled in by reqwest 0.13 +
-# rustls, is C code: cmake and a C toolchain are needed in the builder stage
-# only and never ship.
+# the final image is ~5.5 MB unpacked (3.1 MB of it is the binary). aws-lc-rs,
+# pulled in by reqwest 0.13 + rustls, is C code: cmake and a C toolchain are
+# needed in the builder stage only and never ship.
 #
 # Base images pinned by exact tag, verified on the build host with
 # `docker manifest inspect`:
@@ -17,6 +17,10 @@ FROM rust:1.99-bookworm AS builder
 
 # cmake: aws-lc-sys build script. musl-tools: musl-gcc + static libc for the
 # musl target (crt-static is the default for that target).
+# Versions are not pinned (hadolint DL3008): the base tag rust:1.99-bookworm
+# already fixes the toolchain, and pinning apt revisions breaks the build as
+# soon as Debian publishes a security update. Builder stage only.
+# hadolint ignore=DL3008
 RUN apt-get update \
  && apt-get install -y --no-install-recommends cmake musl-tools \
  && rm -rf /var/lib/apt/lists/*
@@ -56,7 +60,14 @@ FROM alpine:3.24 AS runtime
 # ca-certificates: rustls-platform-verifier reads the system store
 # (rustls-native-certs) to validate the upstream TLS certificate.
 # uid/gid 10001: unprivileged, no shell, no home, no writable path in the image.
-RUN apk add --no-cache ca-certificates \
+# zlib 1.3.2-r1 in the 3.24.4 base carries CVE-2026-4738 (MEDIUM), fixed in
+# 1.4-r0: targeted upgrade, no-op once the base tag ships the fix.
+# apk versions are not pinned (hadolint DL3018) on purpose: the alpine:3.24 tag
+# tracks the patch releases, and pinning ca-certificates/zlib revisions would
+# freeze the image out of security updates.
+# hadolint ignore=DL3018
+RUN apk upgrade --no-cache zlib \
+ && apk add --no-cache ca-certificates \
  && addgroup -g 10001 -S creno \
  && adduser -u 10001 -S -D -H -G creno -s /sbin/nologin creno
 
@@ -72,6 +83,6 @@ STOPSIGNAL SIGTERM
 
 # busybox wget ships with Alpine: no extra package for the probe.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget -q -O- http://127.0.0.1:8080/healthz || exit 1
+  CMD ["wget", "-q", "-O-", "http://127.0.0.1:8080/healthz"]
 
 ENTRYPOINT ["/usr/local/bin/creno-relay"]
