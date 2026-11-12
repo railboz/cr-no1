@@ -182,7 +182,7 @@ Sur mobile, les effets graphiques coûteux (fond fixe, flou GPU) sont désactiv�
 
 ## 🦊 Extension Firefox (navigateur)
 
-Une version **extension** existe aussi, directement dans ce dépôt : le dossier `extension/` (Manifest V2) fournit l'icône de la barre d'outils et la synchro Skello **directe et privée** (permission `https://api.skello.io/*`, sans relais public).
+Une version **extension** existe aussi, directement dans ce dépôt : le dossier `extension/` (Manifest V2) fournit l'icône de la barre d'outils et la synchro Skello **directe et privée** (permission réseau limitée à `https://api.skello.io/*`, plus `storage` pour l'onglet de l'extension, sans relais public).
 
 Les fichiers repris de l'app (`extension/index.html`, `app.js`, `styles.css`, `icons/`) et `dist/` sont générés à chaque construction et ignorés par git ; `extension/manifest.json`, `extension/background.js`, son `README.md` et `tools/` sont versionnés. Détails et reconstruction : `extension/README.md` et la section [Reconstruire l'extension](#reconstruire-lextension) plus bas.
 
@@ -235,7 +235,7 @@ Le script recopie `index.html`, `app.js` et `styles.css` depuis la racine, retir
 
 - **Manifest V2** (Firefox le supporte « pour le futur prévisible », voir [la position de Mozilla](https://blog.mozilla.org/addons/2024/03/13/manifest-v3-manifest-v2-march-2024-update/)) ;
 - L'icône de l'extension ouvre l'app dans un onglet (réutilise l'onglet existant) via `background.js` ;
-- Permissions : `https://api.skello.io/*` seulement — pas de `tabs`, aucun relais public autorisé, la synchro ICS se fait sans CORS ;
+- Permissions : la seule permission réseau est `https://api.skello.io/*`, plus `storage` pour mémoriser l'onglet de l'extension — pas de `tabs`, pas de `<all_urls>`, aucun relais public autorisé, la synchro ICS se fait sans CORS ;
 - `background.persistent: false` (pas de processus résident) et CSP explicite `script-src 'self'; object-src 'none';` ;
 - `browser_specific_settings.gecko.id` : `creno@loganbozier.fr` ;
 - Compatible Firefox 115+.
