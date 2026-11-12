@@ -98,16 +98,7 @@ pub fn calendar_response(body: Vec<u8>, if_none_match: Option<&str>) -> Response
 
     if matches_etag(if_none_match, &etag) {
         let mut response = StatusCode::NOT_MODIFIED.into_response();
-        let parts = response.headers_mut();
-        parts.insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static(ICS_CACHE_CONTROL),
-        );
-        parts.insert(
-            header::X_CONTENT_TYPE_OPTIONS,
-            HeaderValue::from_static("nosniff"),
-        );
-        parts.insert(header::ETAG, etag_header(&etag));
+        calendar_headers(response.headers_mut(), &etag);
         return response;
     }
 
@@ -120,17 +111,22 @@ pub fn calendar_response(body: Vec<u8>, if_none_match: Option<&str>) -> Response
         Body::from(body),
     )
         .into_response();
-    let parts = response.headers_mut();
-    parts.insert(
+    calendar_headers(response.headers_mut(), &etag);
+    response
+}
+
+/// Headers carried by both a `200` and a `304`: the ETag, the cache directive
+/// and `nosniff`, so a revalidated copy stays as trustworthy as a fresh one.
+fn calendar_headers(headers: &mut axum::http::HeaderMap, etag: &str) {
+    headers.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static(ICS_CACHE_CONTROL),
     );
-    parts.insert(
+    headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    parts.insert(header::ETAG, etag_header(&etag));
-    response
+    headers.insert(header::ETAG, etag_header(etag));
 }
 
 /// Reads the single `url` parameter out of the raw query string.
