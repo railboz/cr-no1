@@ -300,6 +300,10 @@
       <span class="muted small" id="icsLastSync">Jamais synchronisé</span>
       <button type="button" class="btn ghost" id="icsSyncNowBtn">⟳ Synchroniser maintenant</button>
     </div>
+    <label class="field"><span>Relais privé (optionnel)</span>
+      <input type="url" id="icsRelayUrl" inputmode="url" autocomplete="url" placeholder="https://relais.exemple.fr" aria-describedby="icsRelayHelp">
+    </label>
+    <div class="help-line small" id="icsRelayHelp">Votre propre serveur : il remplace les relais publics et ne voit que l’URL du calendrier. Laissez vide pour n’en utiliser aucun.</div>
     <label class="check">
       <input type="checkbox" id="icsAllowProxy" checked>
       <span>Si Skello bloque la demande directe (CORS), passer par un relais public. <span class="muted small">⚠️ Votre URL contient un jeton privé : via un relais, elle transite par un serveur tiers. Méthode 100 % privée : le fichier .ics téléchargé.</span></span>

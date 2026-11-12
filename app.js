@@ -79,7 +79,7 @@ function blankState() {
     shifts: [],
     absences: [],
     availability: [true, true, true, true, true, false, false],
-    settings: { skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day' },
+    settings: { skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day', relayUrl: '' },
   };
 }
 const RE_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -110,7 +110,9 @@ function migrate(data) {
   s.availability = (Array.isArray(data.availability) && data.availability.length === 7)
     ? data.availability.slice()
     : [true, true, true, true, true, false, false];
-  s.settings = Object.assign({ skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day' }, data.settings || {});
+  s.settings = Object.assign({ skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day', relayUrl: '' }, data.settings || {});
+  /* Relais privé : ancien état sans la clé, valeur non textuelle ou vide → '' (aucune clé existante n'est renommée ni supprimée) */
+  s.settings.relayUrl = typeof s.settings.relayUrl === 'string' ? s.settings.relayUrl.trim() : '';
   return s;
 }
 function seedDemo() { /* jeu de démo inspiré du planning Skello, ancré sur la semaine courante */
@@ -844,6 +846,7 @@ async function applyICSImport(text, opts = {}) {
 }
 function openIcsModal() {
   $('#icsUrl').value = state.settings.skelloUrl || '';
+  $('#icsRelayUrl').value = state.settings.relayUrl || '';
   $('#icsAllowProxy').checked = state.settings.allowProxy !== false;
   if (IS_EXTENSION) $('#extSyncNote').classList.remove('hidden');
   renderSyncInfo();
@@ -854,6 +857,9 @@ function renderSyncInfo() {
   $('#icsLastSync').textContent = t
     ? 'Dernière synchro : ' + new Date(t).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
     : 'Jamais synchronisé';
+  const relayInput = $('#icsRelayUrl');
+  /* Reflète la valeur normalisée, sans écraser une saisie en cours */
+  if (relayInput && document.activeElement !== relayInput) relayInput.value = state.settings.relayUrl || '';
   $('#icsSyncNowBtn').disabled = !(state.settings.skelloUrl || '').trim();
 }
 function updateSyncBtn() {
@@ -864,7 +870,7 @@ function setSyncBtn(mode) {
   if (b) b.textContent = mode === 'busy' ? '⟳ Synchro…' : '⟳ Sync Skello';
 }
 
-/* Récupère l'ICS depuis l'URL enregistrée : direct, puis relais publics si bloqué */
+/* Récupère l'ICS depuis l'URL enregistrée : direct, puis relais privé, puis relais publics si bloqué */
 let icsSyncing = false;
 let icsAbort = null;        /* permet d'annuler la synchro quand l'app passe en arrière-plan */
 let icsAbortReason = '';
@@ -882,6 +888,36 @@ function fetchBounded(url, ms, outer) {
   });
 }
 
+/* Relais privé (optionnel) : URL de base normalisée.
+   Réponse : { url: '<base https sans / final>', error: '<message>' }.
+   Vide ou non textuel → aucun relais. http:// refusé (le jeton Skello passerait en clair). */
+function normalizeRelayUrl(raw) {
+  const s = typeof raw === 'string' ? raw.trim().replace(/\/+$/, '') : '';
+  if (!s) return { url: '', error: '' };
+  if (/^http:\/\//i.test(s)) {
+    return { url: '', error: 'Relais privé refusé : utilisez https://… (http:// laisserait passer le jeton Skello en clair)' };
+  }
+  if (!/^https:\/\/[^\s/?#]+(?:\/[^\s?#]*)?$/i.test(s)) {
+    return { url: '', error: 'Relais privé invalide : l’adresse doit commencer par https://… (sans paramètre ni espace)' };
+  }
+  return { url: s, error: '' };
+}
+
+/* Ordre des routes ICS : direct → relais privé (si configuré) → relais publics (si autorisés). */
+function buildIcsRoutes(url, settings) {
+  const cfg = settings || {};
+  const routes = [{ name: 'direct', url }];
+  const priv = normalizeRelayUrl(cfg.relayUrl).url;
+  const enc = encodeURIComponent(url);
+  if (priv) routes.push({ name: 'privé', url: priv + '/ics?url=' + enc });
+  if (cfg.allowProxy !== false) {
+    routes.push({ name: 'relais allorigins', url: 'https://api.allorigins.win/raw?url=' + enc });
+    routes.push({ name: 'relais corsproxy', url: 'https://corsproxy.io/?url=' + enc });
+    routes.push({ name: 'relais codetabs', url: 'https://api.codetabs.com/v1/proxy?quest=' + enc });
+  }
+  return routes;
+}
+
 async function syncSkello(opts = {}) {
   const url = (state.settings.skelloUrl || '').trim();
   if (!url) { openIcsModal(); return; }
@@ -894,13 +930,7 @@ async function syncSkello(opts = {}) {
   setSyncBtn('busy');
   if (!opts.silent) toast('Synchronisation avec Skello…');
 
-  const routes = [{ name: 'direct', url }];
-  if (state.settings.allowProxy !== false) {
-    const enc = encodeURIComponent(url);
-    routes.push({ name: 'relais allorigins', url: 'https://api.allorigins.win/raw?url=' + enc });
-    routes.push({ name: 'relais corsproxy', url: 'https://corsproxy.io/?url=' + enc });
-    routes.push({ name: 'relais codetabs', url: 'https://api.codetabs.com/v1/proxy?quest=' + enc });
-  }
+  const routes = buildIcsRoutes(url, state.settings);
 
   let txt = null, via = null;
   for (const r of routes) {
@@ -1287,11 +1317,20 @@ function init() {
   $('#icsSaveUrlBtn').addEventListener('click', () => {
     const u = $('#icsUrl').value.trim();
     if (!/^https?:\/\//i.test(u)) { toast('URL invalide (elle doit commencer par https://…)', 'error'); return; }
+    const relay = normalizeRelayUrl($('#icsRelayUrl').value);
+    if (relay.error) {
+      toast(relay.error, 'error');
+      $('#icsRelayUrl').focus();
+      return;
+    }
+    const hadRelay = !!state.settings.relayUrl;
     state.settings.skelloUrl = u;
+    state.settings.relayUrl = relay.url;
     save();
     renderSyncInfo();
     updateSyncBtn();
-    toast('URL Skello enregistrée ✓ — bouton « ⟳ Sync Skello » activé');
+    if (relay.url) toast('URL Skello et relais privé enregistrés ✓');
+    else toast(hadRelay ? 'URL Skello enregistrée ✓ — relais privé retiré' : 'URL Skello enregistrée ✓ — bouton « ⟳ Sync Skello » activé');
   });
   $('#icsSyncNowBtn').addEventListener('click', () => syncSkello());
   $('#syncIcsBtn').addEventListener('click', () => syncSkello());
