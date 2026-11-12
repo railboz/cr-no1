@@ -1,0 +1,10 @@
+# Artefacts générés par tools/build-extension.sh — jamais commités.
+extension/index.html
+extension/app.js
+extension/styles.css
+extension/icons/
+dist/
+*.xpi
+
+# Build Rust éventuel (backend)
+backend/target/
