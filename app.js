@@ -111,8 +111,12 @@ function migrate(data) {
     ? data.availability.slice()
     : [true, true, true, true, true, false, false];
   s.settings = Object.assign({ skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day', relayUrl: '' }, data.settings || {});
-  /* Relais privé : ancien état sans la clé, valeur non textuelle ou vide → '' (aucune clé existante n'est renommée ni supprimée) */
-  s.settings.relayUrl = typeof s.settings.relayUrl === 'string' ? s.settings.relayUrl.trim() : '';
+  /* Relais privé : validé dès la restauration (URL utilisable = sans / final), mais une valeur
+     invalide est conservée telle quelle : buildIcsRoutes la signalera et n'utilisera alors
+     aucun relais public. Ancien état sans la clé, valeur non textuelle ou vide → ''
+     (aucune clé existante n'est renommée ni supprimée). */
+  const relayRaw = typeof s.settings.relayUrl === 'string' ? s.settings.relayUrl.trim() : '';
+  s.settings.relayUrl = normalizeRelayUrl(relayRaw).url || relayRaw;
   return s;
 }
 function seedDemo() { /* jeu de démo inspiré du planning Skello, ancré sur la semaine courante */
@@ -172,12 +176,12 @@ function getInitials() {
 }
 
 /* ---------- Toasts & confirmation ---------- */
-function toast(msg, type = 'ok') {
+function toast(msg, type = 'ok', ms = 2600) {
   const t = document.createElement('div');
   t.className = 'toast ' + type;
   t.textContent = msg;
   $('#toasts').appendChild(t);
-  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 350); }, 2600);
+  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 350); }, ms);
 }
 
 let cfResolve = null;
@@ -875,17 +879,28 @@ let icsSyncing = false;
 let icsAbort = null;        /* permet d'annuler la synchro quand l'app passe en arrière-plan */
 let icsAbortReason = '';
 
-/* fetch avec délai maximum, interruptible par un signal extérieur.
-   Évite qu'une requête bloquée garde la radio du téléphone active. */
-function fetchBounded(url, ms, outer) {
+/* Budget de synchro : chaque essai est borné à 12 s et l'ensemble des routes à 20 s,
+   pour que le bouton « ⟳ Synchro… » ne reste jamais bloqué des dizaines de secondes. */
+const ICS_ATTEMPT_MS = 12000;
+const ICS_TOTAL_MS = 20000;
+
+/* fetch + lecture du corps avec délai maximum, interruptible par un signal extérieur.
+   Le minuteur couvre aussi le corps de la réponse : une requête qui n'aboutit jamais
+   ne garde ni la radio du téléphone ni le bouton de synchro actifs. */
+function fetchTextBounded(url, ms, outer) {
   const ctrl = new AbortController();
   const relay = () => ctrl.abort();
   if (outer) outer.addEventListener('abort', relay, { once: true });
   const timer = setTimeout(() => ctrl.abort(), ms);
-  return fetch(url, { redirect: 'follow', signal: ctrl.signal }).finally(() => {
-    clearTimeout(timer);
-    if (outer) outer.removeEventListener('abort', relay);
-  });
+  return fetch(url, { redirect: 'follow', signal: ctrl.signal })
+    .then(res => {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.text();
+    })
+    .finally(() => {
+      clearTimeout(timer);
+      if (outer) outer.removeEventListener('abort', relay);
+    });
 }
 
 /* Relais privé (optionnel) : URL de base normalisée.
@@ -903,20 +918,44 @@ function normalizeRelayUrl(raw) {
   return { url: s, error: '' };
 }
 
-/* Ordre des routes ICS : direct → relais privé (si configuré) → relais publics (si autorisés). */
+/* Relais publics : appelés UNIQUEMENT quand aucun relais privé n'est configuré et que
+   l'utilisateur les autorise. L'URL Skello contient un jeton privé : la transmettre à un
+   tiers n'est jamais un repli acceptable quand un relais privé existe. */
+function publicRelayRoutes(enc) {
+  return [
+    { name: 'Relais public (allorigins)', url: 'https://api.allorigins.win/raw?url=' + enc },
+    { name: 'Relais public (corsproxy)', url: 'https://corsproxy.io/?url=' + enc },
+    { name: 'Relais public (codetabs)', url: 'https://api.codetabs.com/v1/proxy?quest=' + enc },
+  ];
+}
+
+/* Décide des routes ICS et de l'erreur à afficher :
+   - relayUrl vide → direct puis relais publics si allowProxy ;
+   - relayUrl valide → direct + relais privé SEULS (aucun relais public, même autorisés) ;
+   - relayUrl configuré mais invalide → direct seul, aucun relais public, erreur explicite. */
 function buildIcsRoutes(url, settings) {
   const cfg = settings || {};
-  const routes = [{ name: 'direct', url }];
-  const priv = normalizeRelayUrl(cfg.relayUrl).url;
   const enc = encodeURIComponent(url);
-  if (priv) routes.push({ name: 'privé', url: priv + '/ics?url=' + enc });
-  if (cfg.allowProxy !== false) {
-    routes.push({ name: 'relais allorigins', url: 'https://api.allorigins.win/raw?url=' + enc });
-    routes.push({ name: 'relais corsproxy', url: 'https://corsproxy.io/?url=' + enc });
-    routes.push({ name: 'relais codetabs', url: 'https://api.codetabs.com/v1/proxy?quest=' + enc });
+  const routes = [{ name: 'Direct', url }];
+  const raw = typeof cfg.relayUrl === 'string' ? cfg.relayUrl.trim() : '';
+  if (!raw) {
+    if (cfg.allowProxy !== false) routes.push(...publicRelayRoutes(enc));
+    return { routes, error: '', mode: 'direct' };
   }
-  return routes;
+  const relay = normalizeRelayUrl(raw);
+  if (relay.error) {
+    return {
+      routes,
+      mode: 'relay-invalid',
+      error: `${relay.error}. Les relais publics ne sont pas utilisés quand un relais privé est configuré.`,
+    };
+  }
+  routes.push({ name: 'Relais privé', url: relay.url + '/ics?url=' + enc });
+  return { routes, error: '', mode: 'relay' };
 }
+
+/* Relais configuré, mais aucune route n'a abouti. */
+const RELAY_UNREACHABLE = 'Relais privé injoignable — vérifiez qu’il tourne et que l’origine de cette page est autorisée (CRENO_ALLOWED_ORIGINS). Les relais publics ne sont pas utilisés quand un relais privé est configuré.';
 
 async function syncSkello(opts = {}) {
   const url = (state.settings.skelloUrl || '').trim();
@@ -930,15 +969,16 @@ async function syncSkello(opts = {}) {
   setSyncBtn('busy');
   if (!opts.silent) toast('Synchronisation avec Skello…');
 
-  const routes = buildIcsRoutes(url, state.settings);
+  const plan = buildIcsRoutes(url, state.settings);
+  const deadline = Date.now() + ICS_TOTAL_MS;
 
   let txt = null, via = null;
-  for (const r of routes) {
+  for (const r of plan.routes) {
     if (ctrl.signal.aborted) break;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     try {
-      const res = await fetchBounded(r.url, 12000, ctrl.signal);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const body = await res.text();
+      const body = await fetchTextBounded(r.url, Math.min(ICS_ATTEMPT_MS, remaining), ctrl.signal);
       if (!/BEGIN:VCALENDAR|BEGIN:VEVENT/i.test(body)) throw new Error('format');
       txt = body;
       via = r.name;
@@ -953,21 +993,29 @@ async function syncSkello(opts = {}) {
 
   if (!txt) {
     setSyncBtn('idle');
-    /* App mise en arrière-plan : on abandonne sans alerter, on réessaiera au retour */
-    if (!abortedByHide) toast('Récupération impossible (hors-ligne, CORS ou URL invalide). Le fichier .ics reste la méthode 100 % fiable.', 'error');
+    /* App mise en arrière-plan : on abandonne sans alerter, on réessaiera au retour.
+       Sinon, message actionnable selon la configuration (jamais de relais public en repli). */
+    if (!abortedByHide) {
+      if (plan.mode === 'relay-invalid') toast(plan.error, 'error', 9000);
+      else if (plan.mode === 'relay') toast(RELAY_UNREACHABLE, 'error', 9000);
+      else toast('Récupération impossible (hors-ligne, CORS ou URL invalide). Le fichier .ics reste la méthode 100 % fiable.', 'error');
+    }
     return;
   }
 
   let stats = null;
-  try { stats = await applyICSImport(txt, { confirm: false, toast: !opts.silent }); }
+  try { stats = await applyICSImport(txt, { confirm: false, toast: false }); }
   catch (e) { console.error('Créno : échec import ICS', e); toast('Import du calendrier impossible', 'error'); }
   finally { setSyncBtn('idle'); }
   if (!stats) return;
   state.settings.lastIcsSync = Date.now();
   save();
   renderSyncInfo();
-  if (opts.silent && (stats.addedS || stats.addedA)) {
-    toast(`Skello : +${stats.addedS} shift(s), +${stats.addedA} absence(s) · via ${via}`);
+  if (opts.silent) {
+    if (stats.addedS || stats.addedA) toast(`Skello : +${stats.addedS} shift(s), +${stats.addedA} absence(s) · via ${via}`);
+  } else {
+    const dupNote = stats.dup ? ` · ${stats.dup} doublon(s) ignoré(s)` : '';
+    toast(`Import Skello : ${stats.addedS} shift(s), ${stats.addedA} absence(s)${dupNote} · via ${via} ✓`);
   }
 }
 
