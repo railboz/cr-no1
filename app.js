@@ -855,6 +855,7 @@ function openIcsModal() {
   if (IS_EXTENSION) $('#extSyncNote').classList.remove('hidden');
   renderSyncInfo();
   renderRelayError($('#icsRelayUrl').value);
+  renderRelayNotice(normalizeRelayUrl($('#icsRelayUrl').value).notice);
   $('#icsModal').showModal();
 }
 function renderSyncInfo() {
@@ -876,6 +877,14 @@ function renderRelayError(raw) {
   el.classList.toggle('hidden', !err);
   const input = $('#icsRelayUrl');
   if (input) input.setAttribute('aria-invalid', err ? 'true' : 'false');
+}
+/* Information discrète (jamais une erreur, `aria-invalid` reste false) : une URL collée
+   avec /ics a été ramenée à sa base. `notice` vient de normalizeRelayUrl ('' = rien à dire). */
+function renderRelayNotice(notice) {
+  const el = $('#icsRelayNotice');
+  if (!el) return;
+  el.textContent = notice ? 'URL normalisée — ' + notice + ' ; le relais ajoute /ics lui-même.' : '';
+  el.classList.toggle('hidden', !notice);
 }
 function updateSyncBtn() {
   $('#syncIcsBtn').classList.toggle('hidden', !(state.settings.skelloUrl || '').trim());
@@ -915,27 +924,35 @@ function fetchTextBounded(url, ms, outer) {
 }
 
 /* Relais privé (optionnel) : URL de base normalisée.
-   Réponse : { url: '<base sans / final>', error: '<message>' }.
+   Réponse : { url: '<base sans / final ni /ics>', error: '<message>', notice: '<info>' }.
    Vide ou non textuel → aucun relais.
    https:// obligatoire ; http:// n'est accepté que pour la boucle locale (localhost,
    127.0.0.1, [::1]) : c'est le cas d'un relais auto-hébergé sans TLS. Ailleurs le jeton
    Skello partirait en clair. (Les regex sont locales : migrate() appelle cette fonction
-   pendant l'évaluation du script, avant l'initialisation des constantes du module.) */
+   pendant l'évaluation du script, avant l'initialisation des constantes du module.)
+   Une URL collée avec son endpoint final (…/ics) est ramenée à sa base, car buildIcsRoutes
+   ajoute lui-même /ics : le suffixe réellement retiré est signalé dans `notice`. */
 function normalizeRelayUrl(raw) {
   const s = typeof raw === 'string' ? raw.trim().replace(/\/+$/, '') : '';
-  if (!s) return { url: '', error: '' };
+  if (!s) return { url: '', error: '', notice: '' };
   const m = /^(https?):\/\/([^\s/?#]+)(\/[^\s?#]*)?$/i.exec(s);
   if (!m) {
-    return { url: '', error: 'Relais privé invalide : indiquez une URL complète https://… (ou http://localhost pour un relais local)' };
+    return { url: '', notice: '', error: 'Relais privé invalide : indiquez une URL complète https://… (ou http://localhost pour un relais local)' };
   }
   const loopback = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d{1,5}))?$/i.exec(m[2]);
   if (m[1].toLowerCase() === 'http' && !loopback) {
-    return { url: '', error: 'Relais privé refusé : http:// n’est accepté que pour localhost, 127.0.0.1 ou [::1] (sinon le jeton Skello partirait en clair)' };
+    return { url: '', notice: '', error: 'Relais privé refusé : http:// n’est accepté que pour localhost, 127.0.0.1 ou [::1] (sinon le jeton Skello partirait en clair)' };
   }
   if (loopback && loopback[1] && Number(loopback[1]) > 65535) {
-    return { url: '', error: 'Relais privé invalide : le port doit être compris entre 1 et 65535' };
+    return { url: '', notice: '', error: 'Relais privé invalide : le port doit être compris entre 1 et 65535' };
   }
-  return { url: s, error: '' };
+  const path = m[3] || '';
+  const base = path.replace(/\/ics\/?$/i, '');
+  return {
+    url: m[1] + '://' + m[2] + base,
+    error: '',
+    notice: base === path ? '' : 'suffixe /ics retiré',
+  };
 }
 
 /* Message court pour le champ relais du dialogue (vide si l'URL est utilisable). */
@@ -1416,13 +1433,17 @@ function init() {
     $('#icsRelayUrl').value = relay.url;
     renderSyncInfo();
     renderRelayError(relay.url);
+    renderRelayNotice(relay.notice);
     updateSyncBtn();
     if (relay.url) toast('URL Skello et relais privé enregistrés ✓');
     else toast(hadRelay ? 'URL Skello enregistrée ✓ — relais privé retiré' : 'URL Skello enregistrée ✓ — bouton « ⟳ Sync Skello » activé');
   });
   $('#icsSyncNowBtn').addEventListener('click', () => syncSkello());
   $('#syncIcsBtn').addEventListener('click', () => syncSkello());
-  $('#icsRelayUrl').addEventListener('input', e => renderRelayError(e.target.value));
+  $('#icsRelayUrl').addEventListener('input', e => {
+    renderRelayError(e.target.value);
+    renderRelayNotice(normalizeRelayUrl(e.target.value).notice);
+  });
   $('#icsAllowProxy').addEventListener('change', e => {
     state.settings.allowProxy = e.target.checked;
     save();
