@@ -181,6 +181,7 @@ function toast(msg, type = 'ok', ms = 2600) {
   t.className = 'toast ' + type;
   t.textContent = msg;
   $('#toasts').appendChild(t);
+  t.setAttribute('role', type === 'error' ? 'alert' : 'status');
   setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 350); }, ms);
 }
 
@@ -200,9 +201,18 @@ function confirmDialog(title, msg, okLabel = 'Confirmer', danger = true) {
 function settleConfirm(v) { if (cfResolve) { const r = cfResolve; cfResolve = null; r(v); } }
 
 /* ---------- Rendu global ---------- */
+/* aria-current="page" suit l'onglet actif (premier chargement compris). */
+function syncNavAria(v) {
+  $$('#mainNav .nav-link').forEach(b => {
+    const on = b.dataset.view === v;
+    if (on) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+}
 function switchView(v) {
   currentView = v;
   $$('#mainNav .nav-link').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  syncNavAria(v);
   $$('.view').forEach(sec => sec.classList.toggle('hidden', sec.id !== 'view-' + v));
   render();
 }
@@ -259,10 +269,19 @@ function renderEstPanel() {
     const from = toISO(weekStart), to = toISO(addDays(weekStart, 6));
     const cnt = state.shifts.filter(s => s.estId === est.id && s.date >= from && s.date <= to).length;
     return `<div class="est-card" data-est="${est.id}" title="Modifier cet établissement">
-      <div class="est-name"><span class="est-dot" style="background:${est.color}"></span>${esc(est.name)}</div>
+      <div class="est-name"><span class="est-dot" style="--c:${est.color}"></span>${esc(est.name)}</div>
       <div class="est-hours">${t ? fmtDur(t) : '0h'} · ${cnt} shift${cnt > 1 ? 's' : ''} cette semaine</div>
     </div>`;
   }).join('');
+}
+/* Markup d'un shift : la couleur de l'établissement passe par --c, le CSS décide du rendu.
+   Source unique pour les deux vues qui affichent un .shift (grille semaine + vue mobile). */
+function shiftMarkup(s, est) {
+  return `<button type="button" class="shift" data-id="${s.id}" style="--c:${est.color}" title="${esc(s.note || '')}">
+            <span class="shift-time">${esc(s.start)} – ${esc(s.end)}</span>
+            <span class="shift-dur">${fmtDur(durMinutes(s.start, s.end))}</span>
+            <span class="shift-label">${esc(s.label || 'SHIFT')}</span>
+          </button>`;
 }
 function renderGrid() {
   const grid = $('#weekGrid');
@@ -283,7 +302,7 @@ function renderGrid() {
     state.establishments.forEach(est => {
       const t = minutesInWeek(weekStart, est.id);
       html += `<div class="est-cell sticky-left" data-est="${est.id}" title="Modifier cet établissement">
-        <div class="est-name"><span class="est-dot" style="background:${est.color}"></span><span>${esc(est.name)}</span></div>
+        <div class="est-name"><span class="est-dot" style="--c:${est.color}"></span><span>${esc(est.name)}</span></div>
         <div class="est-hours">${t ? fmtDur(t) : '—'}</div>
       </div>`;
       days.forEach(d => {
@@ -293,14 +312,10 @@ function renderGrid() {
         html += `<div class="cell ${iso === today ? 'today' : ''}" data-est="${est.id}" data-date="${iso}">`;
         dayAbs.forEach(a => {
           const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
-          html += `<div class="absence" data-absence="1" style="border-color:${meta.color}55;color:${meta.color};background:${meta.color}14" title="${esc(a.note || a.type)}">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
+          html += `<div class="absence" data-absence="1" style="--c:${meta.color}" title="${esc(a.note || a.type)}">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
         });
         dayShifts.forEach(s => {
-          html += `<button type="button" class="shift" data-id="${s.id}" style="background:linear-gradient(135deg, ${est.color}, ${shade(est.color, -0.3)})" title="${esc(s.note || '')}">
-            <span class="shift-time">${esc(s.start)} – ${esc(s.end)}</span>
-            <span class="shift-dur">${fmtDur(durMinutes(s.start, s.end))}</span>
-            <span class="shift-label">${esc(s.label || 'SHIFT')}</span>
-          </button>`;
+          html += shiftMarkup(s, est);
         });
         html += '</div>';
       });
@@ -318,7 +333,7 @@ function renderSummary() {
   $('#summaryBar').innerHTML = `
     <div class="sum-item"><span class="sum-num">${ws.length}</span><span>shift${ws.length > 1 ? 's' : ''}</span></div>
     <div class="sum-item"><span class="sum-num">${fmtDur(total)}</span><span>travaillées</span></div>
-    <div class="progress-wrap"><div class="progress" style="width:${pct}%"></div></div>
+    <div class="progress-wrap"><div class="progress" style="--v:${pct}%"></div></div>
     <div class="progress-label">Objectif ${obj} h · ${pct} %</div>
     <div class="sum-item"><span class="sum-num sum-money">${fmtEur(pay)}</span><span>estimés · ${rate.toLocaleString('fr-FR')} €/h</span></div>
     ${ws.length === 0 ? '<div class="progress-label">💡 Cliquez sur une case pour créer un shift</div>' : ''}`;
@@ -372,7 +387,7 @@ function renderMobileView() {
 
       let cards = abs.map(a => {
         const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
-        return `<div class="md-absence ${past ? 'past' : ''}" data-absence="1" style="border-color:${meta.color}55;color:${meta.color};background:${meta.color}14">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
+        return `<div class="md-absence ${past ? 'past' : ''}" data-absence="1" style="--c:${meta.color}">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
       }).join('');
       cards += dayShifts.map(({ s, est }) => `
         <button type="button" class="md-shift ${past ? 'past' : ''}" data-id="${s.id}" style="--c:${est.color}" title="${esc(s.note || '')}">
@@ -415,20 +430,15 @@ function renderMobileView() {
       const total = shifts.reduce((t, s) => t + durMinutes(s.start, s.end), 0);
       body += `<div class="md-est">
         <div class="md-est-head" data-est="${est.id}">
-          <span class="est-dot" style="background:${est.color}"></span>
+          <span class="est-dot" style="--c:${est.color}"></span>
           <span>${esc(est.name)}</span>
           ${total ? `<span class="md-est-total">${fmtDur(total)}</span>` : ''}
         </div>
         ${abs.map(a => {
           const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
-          return `<div class="md-absence" data-absence="1" style="border-color:${meta.color}55;color:${meta.color};background:${meta.color}14">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
+          return `<div class="md-absence" data-absence="1" style="--c:${meta.color}">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
         }).join('')}
-        ${shifts.map(s => `
-          <button type="button" class="shift" data-id="${s.id}" style="background:linear-gradient(135deg, ${est.color}, ${shade(est.color, -0.3)})" title="${esc(s.note || '')}">
-            <span class="shift-time">${esc(s.start)} – ${esc(s.end)}</span>
-            <span class="shift-dur">${fmtDur(durMinutes(s.start, s.end))}</span>
-            <span class="shift-label">${esc(s.label || 'SHIFT')}</span>
-          </button>`).join('')}
+        ${shifts.map(s => shiftMarkup(s, est)).join('')}
       </div>`;
     });
     if (!body) {
@@ -549,7 +559,7 @@ function renderEstablishments() {
     const mine = state.shifts.filter(s => s.estId === est.id);
     const total = mine.reduce((t, s) => t + durMinutes(s.start, s.end), 0);
     return `<div class="est-card" data-est="${est.id}" title="Modifier cet établissement">
-      <div class="est-name"><span class="est-dot" style="background:${est.color}"></span>${esc(est.name)}</div>
+      <div class="est-name"><span class="est-dot" style="--c:${est.color}"></span>${esc(est.name)}</div>
       <div class="est-hours">${fmtDur(total)} · ${mine.length} shift${mine.length > 1 ? 's' : ''} au total</div>
     </div>`;
   }).join('');
@@ -610,7 +620,7 @@ function renderStats() {
   const ref = Number(state.profile.refSalary) || 0;
   if (ref > 0) {
     $('#statPayMini').classList.remove('hidden');
-    $('#statPayBar').style.width = Math.min(100, Math.round(pay / ref * 100)) + '%';
+    $('#statPayBar').style.setProperty('--v', Math.min(100, Math.round(pay / ref * 100)) + '%');
     $('#statPaySub').textContent += ` · ${Math.round(pay / ref * 100)} % de ${fmtEur(ref)}`;
   } else {
     $('#statPayMini').classList.add('hidden');
@@ -628,7 +638,7 @@ function renderStats() {
     const pct = Math.round(w.min / max * 100);
     const cur = toISO(w.mon) === toISO(curWeek);
     return `<div class="bar-col">
-      <div class="bar-zone"><div class="bar ${cur ? 'cur' : ''}" style="height:${Math.max(3, pct)}%"><span class="bar-tip">${w.min ? fmtDur(w.min) : ''}</span></div></div>
+      <div class="bar-zone"><div class="bar ${cur ? 'cur' : ''}" style="--v:${Math.max(3, pct)}%"><span class="bar-tip">${w.min ? fmtDur(w.min) : ''}</span></div></div>
       <span class="bar-x">S${isoWeek(w.mon)}</span>
     </div>`;
   }).join('');
@@ -644,8 +654,8 @@ function renderStats() {
   const maxEst = Math.max(...byEst.map(x => x.min), 1);
   $('#hbarsEst').innerHTML = byEst.length
     ? byEst.map(x => `<div class="hbar-row">
-        <div class="hbar-key"><span class="est-dot" style="background:${x.color}"></span>${esc(x.name)}</div>
-        <div class="hbar-track"><div class="hbar" style="width:${Math.round(x.min / maxEst * 100)}%;background:${x.color}"></div></div>
+        <div class="hbar-key"><span class="est-dot" style="--c:${x.color}"></span>${esc(x.name)}</div>
+        <div class="hbar-track"><div class="hbar" style="--v:${Math.round(x.min / maxEst * 100)}%;--c:${x.color}"></div></div>
         <div class="hbar-val">${fmtDur(x.min)}</div>
       </div>`).join('')
     : '<div class="muted">Pas encore de données sur les 30 derniers jours.</div>';
@@ -660,7 +670,7 @@ function renderStats() {
   $('#hbarsLabels').innerHTML = top.length
     ? top.map(([k, v]) => `<div class="hbar-row">
         <div class="hbar-key">${esc(k)}</div>
-        <div class="hbar-track"><div class="hbar" style="width:${Math.round(v / maxL * 100)}%;background:var(--blue)"></div></div>
+        <div class="hbar-track"><div class="hbar" style="--v:${Math.round(v / maxL * 100)}%;--c:var(--blue)"></div></div>
         <div class="hbar-val">${fmtDur(v)}</div>
       </div>`).join('')
     : '<div class="muted">Pas encore de données.</div>';
@@ -691,9 +701,10 @@ function renderProfilePreview() {
   $('#menuEmail').textContent = state.profile.email || 'Aucun e-mail renseigné';
 }
 function renderChips() {
-  $('#availChips').innerHTML = DAYS_LONG.map((d, i) =>
-    `<button type="button" class="chip ${state.availability[i] !== false ? 'on' : ''}" data-i="${i}">${d.charAt(0).toUpperCase() + d.slice(1)}</button>`
-  ).join('');
+  $('#availChips').innerHTML = DAYS_LONG.map((d, i) => {
+    const on = state.availability[i] !== false;
+    return `<button type="button" class="chip ${on ? 'on' : ''}" data-i="${i}" aria-pressed="${on ? 'true' : 'false'}">${d.charAt(0).toUpperCase() + d.slice(1)}</button>`;
+  }).join('');
 }
 
 /* ---------- Import Skello (ICS) ---------- */
@@ -1020,6 +1031,7 @@ async function syncSkello(opts = {}) {
   const ctrl = new AbortController();
   icsAbort = ctrl;
   $('#icsSyncNowBtn').disabled = true;
+  $('#icsSyncNowBtn').setAttribute('aria-busy', 'true');
   setSyncBtn('busy');
   if (!opts.silent) toast('Synchronisation avec Skello…');
 
@@ -1044,6 +1056,7 @@ async function syncSkello(opts = {}) {
   icsAbortReason = '';
   icsSyncing = false;
   $('#icsSyncNowBtn').disabled = false;
+  $('#icsSyncNowBtn').removeAttribute('aria-busy');
 
   if (!txt) {
     setSyncBtn('idle');
@@ -1132,14 +1145,22 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 function init() {
   /* Navigation */
   $$('#mainNav .nav-link').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
+  syncNavAria(currentView);
 
   /* Menu avatar */
-  $('#avatarBtn').addEventListener('click', e => { e.stopPropagation(); $('#avatarMenu').classList.toggle('hidden'); });
+  const avatarBtn = $('#avatarBtn'), avatarMenu = $('#avatarMenu');
+  const syncAvatarAria = () => {
+    avatarBtn.setAttribute('aria-haspopup', 'true');
+    avatarBtn.setAttribute('aria-expanded', avatarMenu.classList.contains('hidden') ? 'false' : 'true');
+  };
+  syncAvatarAria();
+  avatarBtn.addEventListener('click', e => { e.stopPropagation(); avatarMenu.classList.toggle('hidden'); syncAvatarAria(); });
   document.addEventListener('click', e => {
-    if (!e.target.closest('.avatar-wrap')) $('#avatarMenu').classList.add('hidden');
+    if (!e.target.closest('.avatar-wrap')) { avatarMenu.classList.add('hidden'); syncAvatarAria(); }
   });
   $$('#avatarMenu [data-action]').forEach(b => b.addEventListener('click', () => {
-    $('#avatarMenu').classList.add('hidden');
+    avatarMenu.classList.add('hidden');
+    syncAvatarAria();
     const a = b.dataset.action;
     if (a === 'goto-profile') switchView('profile');
     else if (a === 'goto-establishments') switchView('establishments');
