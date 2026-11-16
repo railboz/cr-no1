@@ -289,7 +289,7 @@
       Dans Skello : <b>Mon profil → Synchroniser le calendrier</b>, copiez l'URL affichée.<br>
       Vos créneaux deviennent des <b>shifts</b> et vos journées de congés des <b>absences</b>. Les doublons sont ignorés.
     </div>
-    <div class="help-line ext hidden" id="extSyncNote">🔐 <b>Extension Firefox</b> : la récupération directe depuis Skello est autorisée (permission accordée à l'installation) — aucune donnée ne transite par un relais, c'est 100 % privé.</div>
+    <div class="help-line ext hidden" id="extSyncNote">🔐 <b>Extension Firefox</b> : la récupération directe depuis Skello est autorisée (permission accordée à l'installation). Tant qu'elle fonctionne, aucun relais n'est sollicité. Si elle échoue : un relais privé configuré est utilisé seul ; sans relais privé, les relais publics ne le sont que si vous les autorisez ci-dessous — votre URL et son jeton transitent alors par un serveur tiers.</div>
     <label class="field"><span>URL du calendrier Skello (copiée depuis « Synchroniser le calendrier »)</span>
       <div class="row">
         <input type="url" id="icsUrl" placeholder="https://api.skello.io/users/…/feeds/ics/…">
@@ -300,9 +300,15 @@
       <span class="muted small" id="icsLastSync">Jamais synchronisé</span>
       <button type="button" class="btn ghost" id="icsSyncNowBtn">⟳ Synchroniser maintenant</button>
     </div>
+    <label class="field"><span>Relais privé (optionnel)</span>
+      <input type="url" id="icsRelayUrl" inputmode="url" autocomplete="url" placeholder="https://relais.exemple.fr ou http://localhost:8080" aria-describedby="icsRelayHelp icsRelayError">
+    </label>
+    <div class="help-line small" id="icsRelayHelp">Votre propre serveur : dès qu'il est configuré, seuls l'accès direct et ce relais sont utilisés — aucun relais public, même si la case ci-dessous est cochée. Il ne voit que l'URL du calendrier. Indiquez l'URL de base seule, sans /ics (l'app l'ajoute) : un /ics collé par erreur est retiré automatiquement. https:// obligatoire ; http:// accepté uniquement pour localhost (relais local sans TLS). Laissez vide pour utiliser les relais publics, si vous les autorisez, en cas de blocage CORS.</div>
+    <div class="warn-line hidden" id="icsRelayError" role="status"></div>
+    <div class="help-line small hidden" id="icsRelayNotice" role="status"></div>
     <label class="check">
       <input type="checkbox" id="icsAllowProxy" checked>
-      <span>Si Skello bloque la demande directe (CORS), passer par un relais public. <span class="muted small">⚠️ Votre URL contient un jeton privé : via un relais, elle transite par un serveur tiers. Méthode 100 % privée : le fichier .ics téléchargé.</span></span>
+      <span>Si Skello bloque la demande directe (CORS) <b>et qu'aucun relais privé n'est configuré</b>, passer par un relais public. <span class="muted small">⚠️ Votre URL contient un jeton privé : via un relais public, elle transite par un serveur tiers. Méthodes 100 % privées : un relais privé, ou le fichier .ics téléchargé.</span></span>
     </label>
     <div class="sep-line">ou manuellement</div>
     <label class="field"><span>Depuis un fichier .ics <span class="muted small">(méthode fiable : ouvrez l'URL dans le navigateur, il télécharge le fichier)</span></span>
@@ -328,6 +334,17 @@
     <button type="button" class="btn danger" id="cfOk">Confirmer</button>
   </div>
 </dialog>
+
+<!-- ================= DICTAPHONE ================= -->
+<button type="button" id="dictaBtn" aria-label="Dicter (Ctrl/Cmd+Maj+M)" aria-pressed="false" title="Dicter (Ctrl/Cmd+Maj+M)" hidden>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+</button>
+<!-- Pastille purement visuelle ; les annonces lecteur d'écran passent par #dictaLive. -->
+<div id="dictaPill" aria-hidden="true" hidden>
+  <span class="dicta-pill-dot" aria-hidden="true"></span>
+  <span id="dictaPillText"></span>
+</div>
+<div id="dictaLive" role="status" aria-live="polite" class="sr-only"></div>
 
 <div id="toasts"></div>
 <div id="dropOverlay" class="drop-overlay hidden"><div class="box">📥 Déposez votre fichier JSON ou ICS pour l'importer</div></div>

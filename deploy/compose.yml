@@ -1,0 +1,80 @@
+# Créno relay — auto-hébergement.
+#
+#   cp deploy/.env.example deploy/.env  # facultatif : les défauts suffisent
+#   docker compose -f deploy/compose.yml up -d --build
+#   curl -sS http://127.0.0.1:8080/healthz
+#
+# Les variables sont lues dans deploy/.env (non versionné, voir
+# deploy/.env.example, seule source de vérité). Le relais est sans état : aucun
+# volume, rien n'est écrit sur le disque. Tout est piloté par l'environnement,
+# défauts documentés dans backend/CONTRACT.md.
+name: creno-relay
+
+services:
+  relay:
+    build: ../backend
+    # Tag versionné (version de la crate) : pas de :latest implicite.
+    # Surchargeable via CRENO_IMAGE (deploy/.env) pour publier/épingler une image.
+    image: ${CRENO_IMAGE:-creno-relay:0.1.0}
+    restart: unless-stopped
+    # Boucle locale uniquement : c'est un reverse proxy TLS (Caddy, nginx,
+    # Traefik) qui publie le service, jamais Docker. Pour un test sur le LAN,
+    # remplacer par "8080:8080" en connaissance de cause (HTTP en clair).
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Défauts documentés de CONTRACT.md ; surcharge via deploy/.env
+      # (non versionné, chargé automatiquement par Compose).
+      #
+      # Fixé, jamais interpolé : à l'intérieur du conteneur l'écoute doit rester
+      # 0.0.0.0:8080, sinon la publication `ports:` ne joint plus rien (le
+      # conteneur resterait "healthy" — la sonde passe par la boucle interne —
+      # mais serait injoignable depuis l'hôte). L'exposition côté hôte se règle
+      # uniquement par `ports:`. Un CRENO_BIND resté dans deploy/.env est donc
+      # sans effet, et sans danger.
+      CRENO_BIND: 0.0.0.0:8080
+      CRENO_ALLOWED_HOSTS: ${CRENO_ALLOWED_HOSTS:-api.skello.io}
+      CRENO_MAX_BYTES: ${CRENO_MAX_BYTES:-2097152}
+      CRENO_TIMEOUT_SECS: ${CRENO_TIMEOUT_SECS:-12}
+      CRENO_RATE_LIMIT: ${CRENO_RATE_LIMIT:-30}
+      CRENO_ALLOW_EXTENSION: ${CRENO_ALLOW_EXTENSION:-0}
+      CRENO_ALLOW_FILE_ORIGIN: ${CRENO_ALLOW_FILE_ORIGIN:-0}
+      CRENO_ALLOWED_ORIGINS: ${CRENO_ALLOWED_ORIGINS:-}
+      # Verbosité des journaux (info par défaut, debug pour diagnostiquer).
+      RUST_LOG: ${RUST_LOG:-info}
+    # wget (busybox) est dans l'image : sonde HTTP réelle sur /healthz.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    # Durcissement : disque en lecture seule, aucun privilège, aucune
+    # capability ; /tmp en mémoire pour ce qui en aurait besoin.
+    # user explicite (déjà l'USER de l'image) : le durcissement reste vrai même
+    # si CRENO_IMAGE pointe vers une image reconstruite.
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 10s
+    # Le relais est un petit client HTTP : 128 Mio et 128 threads suffisent
+    # largement et bornent un emballement (fuite mémoire, boucle de requêtes).
+    mem_limit: 128m
+    pids_limit: 128
+    # Les journaux ne doivent jamais pouvoir remplir le disque.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    networks:
+      - relay
+
+networks:
+  relay:
+    name: creno-relay

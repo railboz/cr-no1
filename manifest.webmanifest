@@ -1,7 +1,7 @@
 {
   "name": "Créno — Votre planning, simplement",
   "short_name": "Créno",
-  "description": "Planning d'horaires 100 % local : shifts, absences, statistiques et salaire estimé. Synchronisable avec Skello (ICS).",
+  "description": "Planning d'horaires 100 % local (hors dictée vocale optionnelle) : shifts, absences, statistiques et salaire estimé. Synchronisable avec Skello (ICS).",
   "lang": "fr",
   "start_url": ".",
   "scope": ".",

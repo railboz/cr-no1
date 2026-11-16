@@ -2,6 +2,7 @@
 
 /* ============================================================
    Créno — app de planning 100 % locale
+   (hors dictée vocale, qui utilise le service de reconnaissance du navigateur)
    Données : localStorage · Import/Export : JSON
    ============================================================ */
 
@@ -78,7 +79,7 @@ function blankState() {
     shifts: [],
     absences: [],
     availability: [true, true, true, true, true, false, false],
-    settings: { skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day' },
+    settings: { skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day', relayUrl: '' },
   };
 }
 const RE_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -109,7 +110,13 @@ function migrate(data) {
   s.availability = (Array.isArray(data.availability) && data.availability.length === 7)
     ? data.availability.slice()
     : [true, true, true, true, true, false, false];
-  s.settings = Object.assign({ skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day' }, data.settings || {});
+  s.settings = Object.assign({ skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day', relayUrl: '' }, data.settings || {});
+  /* Relais privé : on valide dès la restauration (URL valide = sans / final), mais une valeur
+     invalide est conservée telle quelle : buildIcsRoutes la signalera et n'utilisera alors
+     aucun relais public. Ancien état sans la clé, valeur non textuelle ou vide → ''
+     (aucune clé existante n'est renommée ni supprimée). */
+  const relayRaw = typeof s.settings.relayUrl === 'string' ? s.settings.relayUrl.trim() : '';
+  s.settings.relayUrl = normalizeRelayUrl(relayRaw).url || relayRaw;
   return s;
 }
 function seedDemo() { /* jeu de démo inspiré du planning Skello, ancré sur la semaine courante */
@@ -169,12 +176,12 @@ function getInitials() {
 }
 
 /* ---------- Toasts & confirmation ---------- */
-function toast(msg, type = 'ok') {
+function toast(msg, type = 'ok', ms = 2600) {
   const t = document.createElement('div');
   t.className = 'toast ' + type;
   t.textContent = msg;
   $('#toasts').appendChild(t);
-  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 350); }, 2600);
+  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 350); }, ms);
 }
 
 let cfResolve = null;
@@ -843,9 +850,12 @@ async function applyICSImport(text, opts = {}) {
 }
 function openIcsModal() {
   $('#icsUrl').value = state.settings.skelloUrl || '';
+  $('#icsRelayUrl').value = state.settings.relayUrl || '';
   $('#icsAllowProxy').checked = state.settings.allowProxy !== false;
   if (IS_EXTENSION) $('#extSyncNote').classList.remove('hidden');
   renderSyncInfo();
+  renderRelayError($('#icsRelayUrl').value);
+  renderRelayNotice(normalizeRelayUrl($('#icsRelayUrl').value).notice);
   $('#icsModal').showModal();
 }
 function renderSyncInfo() {
@@ -853,7 +863,28 @@ function renderSyncInfo() {
   $('#icsLastSync').textContent = t
     ? 'Dernière synchro : ' + new Date(t).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
     : 'Jamais synchronisé';
+  /* #icsRelayUrl n'est rempli qu'à l'ouverture du dialogue (et après un enregistrement réussi) :
+     renderSyncInfo est aussi appelé par la synchro automatique et ne doit jamais écraser
+     une saisie en cours. L'avertissement du champ relais est géré séparément (renderRelayError). */
   $('#icsSyncNowBtn').disabled = !(state.settings.skelloUrl || '').trim();
+}
+/* Signale dans le dialogue un relais enregistré mais inutilisable (URL invalide restaurée). */
+function renderRelayError(raw) {
+  const el = $('#icsRelayError');
+  if (!el) return;
+  const err = relayUrlError(raw);
+  el.textContent = err ? err + ' Aucun relais public ne sera utilisé tant que ce champ est rempli.' : '';
+  el.classList.toggle('hidden', !err);
+  const input = $('#icsRelayUrl');
+  if (input) input.setAttribute('aria-invalid', err ? 'true' : 'false');
+}
+/* Information discrète (jamais une erreur, `aria-invalid` reste false) : une URL collée
+   avec /ics a été ramenée à sa base. `notice` vient de normalizeRelayUrl ('' = rien à dire). */
+function renderRelayNotice(notice) {
+  const el = $('#icsRelayNotice');
+  if (!el) return;
+  el.textContent = notice ? 'URL normalisée — ' + notice + ' ; le relais ajoute /ics lui-même.' : '';
+  el.classList.toggle('hidden', !notice);
 }
 function updateSyncBtn() {
   $('#syncIcsBtn').classList.toggle('hidden', !(state.settings.skelloUrl || '').trim());
@@ -863,23 +894,122 @@ function setSyncBtn(mode) {
   if (b) b.textContent = mode === 'busy' ? '⟳ Synchro…' : '⟳ Sync Skello';
 }
 
-/* Récupère l'ICS depuis l'URL enregistrée : direct, puis relais publics si bloqué */
+/* Récupère l'ICS depuis l'URL enregistrée : direct, puis relais privé, puis relais publics si bloqué */
 let icsSyncing = false;
 let icsAbort = null;        /* permet d'annuler la synchro quand l'app passe en arrière-plan */
 let icsAbortReason = '';
 
-/* fetch avec délai maximum, interruptible par un signal extérieur.
-   Évite qu'une requête bloquée garde la radio du téléphone active. */
-function fetchBounded(url, ms, outer) {
+/* Budget de synchro : chaque essai est borné à 12 s et l'ensemble des routes à 20 s,
+   pour que le bouton « ⟳ Synchro… » ne reste jamais bloqué des dizaines de secondes. */
+const ICS_ATTEMPT_MS = 12000;
+const ICS_TOTAL_MS = 20000;
+
+/* fetch + lecture du corps avec délai maximum, interruptible par un signal extérieur.
+   Le minuteur couvre aussi le corps de la réponse : une requête qui n'aboutit jamais
+   ne garde ni la radio du téléphone ni le bouton de synchro actifs. */
+function fetchTextBounded(url, ms, outer) {
   const ctrl = new AbortController();
   const relay = () => ctrl.abort();
   if (outer) outer.addEventListener('abort', relay, { once: true });
   const timer = setTimeout(() => ctrl.abort(), ms);
-  return fetch(url, { redirect: 'follow', signal: ctrl.signal }).finally(() => {
-    clearTimeout(timer);
-    if (outer) outer.removeEventListener('abort', relay);
-  });
+  return fetch(url, { redirect: 'follow', signal: ctrl.signal })
+    .then(res => {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.text();
+    })
+    .finally(() => {
+      clearTimeout(timer);
+      if (outer) outer.removeEventListener('abort', relay);
+    });
 }
+
+/* Relais privé (optionnel) : URL de base normalisée.
+   Réponse : { url: '<base sans / final ni /ics>', error: '<message>', notice: '<info>' }.
+   Vide ou non textuel → aucun relais.
+   https:// obligatoire ; http:// n'est accepté que pour la boucle locale (localhost,
+   127.0.0.1, [::1]) : c'est le cas d'un relais auto-hébergé sans TLS. Ailleurs le jeton
+   Skello partirait en clair. (Les regex sont locales : migrate() appelle cette fonction
+   pendant l'évaluation du script, avant l'initialisation des constantes du module.)
+   Une URL collée avec son endpoint final (…/ics) est ramenée à sa base, car buildIcsRoutes
+   ajoute lui-même /ics : le suffixe réellement retiré est signalé dans `notice`. */
+function normalizeRelayUrl(raw) {
+  const s = typeof raw === 'string' ? raw.trim().replace(/\/+$/, '') : '';
+  if (!s) return { url: '', error: '', notice: '' };
+  const m = /^(https?):\/\/([^\s/?#]+)(\/[^\s?#]*)?$/i.exec(s);
+  if (!m) {
+    return { url: '', notice: '', error: 'Relais privé invalide : indiquez une URL complète https://… (ou http://localhost pour un relais local)' };
+  }
+  const loopback = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d{1,5}))?$/i.exec(m[2]);
+  if (m[1].toLowerCase() === 'http' && !loopback) {
+    return { url: '', notice: '', error: 'Relais privé refusé : http:// n’est accepté que pour localhost, 127.0.0.1 ou [::1] (sinon le jeton Skello partirait en clair)' };
+  }
+  if (loopback && loopback[1] && Number(loopback[1]) > 65535) {
+    return { url: '', notice: '', error: 'Relais privé invalide : le port doit être compris entre 1 et 65535' };
+  }
+  const path = m[3] || '';
+  const base = path.replace(/\/ics\/?$/i, '');
+  return {
+    url: m[1] + '://' + m[2] + base,
+    error: '',
+    notice: base === path ? '' : 'suffixe /ics retiré',
+  };
+}
+
+/* Message court pour le champ relais du dialogue (vide si l'URL est utilisable). */
+function relayUrlError(raw) {
+  return typeof raw === 'string' && raw.trim() ? normalizeRelayUrl(raw).error : '';
+}
+
+/* URL Skello : https:// obligatoire à l'enregistrement (le relais privé ne relaie que https,
+   et un relais public récupérerait l'URL et son jeton en clair). Les valeurs déjà enregistrées
+   restent utilisées telles quelles : cette validation ne s'applique qu'à la sauvegarde. */
+function validateSkelloUrl(raw) {
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  if (!s) return { url: '', error: 'Collez l’URL du calendrier Skello' };
+  if (!/^https:\/\/[^\s]+$/i.test(s)) {
+    return { url: '', error: 'URL Skello invalide : elle doit commencer par https://… (cette URL contient un jeton privé)' };
+  }
+  return { url: s, error: '' };
+}
+
+/* Relais publics : appelés UNIQUEMENT quand aucun relais privé n'est configuré et que
+   l'utilisateur les autorise. L'URL Skello contient un jeton privé : la transmettre à un
+   tiers n'est jamais un repli acceptable quand un relais privé existe. */
+function publicRelayRoutes(enc) {
+  return [
+    { name: 'Relais public (allorigins)', url: 'https://api.allorigins.win/raw?url=' + enc },
+    { name: 'Relais public (corsproxy)', url: 'https://corsproxy.io/?url=' + enc },
+    { name: 'Relais public (codetabs)', url: 'https://api.codetabs.com/v1/proxy?quest=' + enc },
+  ];
+}
+
+/* Décide des routes ICS et de l'erreur à afficher :
+   - relayUrl vide → direct puis relais publics si allowProxy ;
+   - relayUrl valide → direct + relais privé SEULS (aucun relais public, même autorisés) ;
+   - relayUrl configuré mais invalide → direct seul, aucun relais public, erreur explicite. */
+function buildIcsRoutes(url, settings) {
+  const cfg = settings || {};
+  const enc = encodeURIComponent(url);
+  const routes = [{ name: 'Direct', url }];
+  const raw = typeof cfg.relayUrl === 'string' ? cfg.relayUrl.trim() : '';
+  if (!raw) {
+    if (cfg.allowProxy !== false) routes.push(...publicRelayRoutes(enc));
+    return { routes, error: '', mode: 'direct' };
+  }
+  const relay = normalizeRelayUrl(raw);
+  if (relay.error) {
+    return {
+      routes,
+      mode: 'relay-invalid',
+      error: `${relay.error}. Les relais publics ne sont pas utilisés quand un relais privé est configuré.`,
+    };
+  }
+  routes.push({ name: 'Relais privé', url: relay.url + '/ics?url=' + enc });
+  return { routes, error: '', mode: 'relay' };
+}
+
+/* Relais configuré, mais aucune route n'a abouti. */
+const RELAY_UNREACHABLE = 'Relais privé injoignable — vérifiez qu’il tourne et que l’origine de cette page est autorisée (CRENO_ALLOWED_ORIGINS). Les relais publics ne sont pas utilisés quand un relais privé est configuré.';
 
 async function syncSkello(opts = {}) {
   const url = (state.settings.skelloUrl || '').trim();
@@ -893,21 +1023,16 @@ async function syncSkello(opts = {}) {
   setSyncBtn('busy');
   if (!opts.silent) toast('Synchronisation avec Skello…');
 
-  const routes = [{ name: 'direct', url }];
-  if (state.settings.allowProxy !== false) {
-    const enc = encodeURIComponent(url);
-    routes.push({ name: 'relais allorigins', url: 'https://api.allorigins.win/raw?url=' + enc });
-    routes.push({ name: 'relais corsproxy', url: 'https://corsproxy.io/?url=' + enc });
-    routes.push({ name: 'relais codetabs', url: 'https://api.codetabs.com/v1/proxy?quest=' + enc });
-  }
+  const plan = buildIcsRoutes(url, state.settings);
+  const deadline = Date.now() + ICS_TOTAL_MS;
 
   let txt = null, via = null;
-  for (const r of routes) {
+  for (const r of plan.routes) {
     if (ctrl.signal.aborted) break;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     try {
-      const res = await fetchBounded(r.url, 12000, ctrl.signal);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const body = await res.text();
+      const body = await fetchTextBounded(r.url, Math.min(ICS_ATTEMPT_MS, remaining), ctrl.signal);
       if (!/BEGIN:VCALENDAR|BEGIN:VEVENT/i.test(body)) throw new Error('format');
       txt = body;
       via = r.name;
@@ -922,21 +1047,29 @@ async function syncSkello(opts = {}) {
 
   if (!txt) {
     setSyncBtn('idle');
-    /* App mise en arrière-plan : on abandonne sans alerter, on réessaiera au retour */
-    if (!abortedByHide) toast('Récupération impossible (hors-ligne, CORS ou URL invalide). Le fichier .ics reste la méthode 100 % fiable.', 'error');
+    /* App mise en arrière-plan : on abandonne sans alerter, on réessaiera au retour.
+       Sinon, message actionnable selon la configuration (jamais de relais public en repli). */
+    if (!abortedByHide) {
+      if (plan.mode === 'relay-invalid') toast(plan.error, 'error', 9000);
+      else if (plan.mode === 'relay') toast(RELAY_UNREACHABLE, 'error', 9000);
+      else toast('Récupération impossible (hors-ligne, CORS ou URL invalide). Le fichier .ics reste la méthode 100 % fiable.', 'error');
+    }
     return;
   }
 
   let stats = null;
-  try { stats = await applyICSImport(txt, { confirm: false, toast: !opts.silent }); }
+  try { stats = await applyICSImport(txt, { confirm: false, toast: false }); }
   catch (e) { console.error('Créno : échec import ICS', e); toast('Import du calendrier impossible', 'error'); }
   finally { setSyncBtn('idle'); }
   if (!stats) return;
   state.settings.lastIcsSync = Date.now();
   save();
   renderSyncInfo();
-  if (opts.silent && (stats.addedS || stats.addedA)) {
-    toast(`Skello : +${stats.addedS} shift(s), +${stats.addedA} absence(s) · via ${via}`);
+  if (opts.silent) {
+    if (stats.addedS || stats.addedA) toast(`Skello : +${stats.addedS} shift(s), +${stats.addedA} absence(s) · via ${via}`);
+  } else {
+    const dupNote = stats.dup ? ` · ${stats.dup} doublon(s) ignoré(s)` : '';
+    toast(`Import Skello : ${stats.addedS} shift(s), ${stats.addedA} absence(s)${dupNote} · via ${via} ✓`);
   }
 }
 
@@ -1284,16 +1417,33 @@ function init() {
     e.target.value = '';
   });
   $('#icsSaveUrlBtn').addEventListener('click', () => {
-    const u = $('#icsUrl').value.trim();
-    if (!/^https?:\/\//i.test(u)) { toast('URL invalide (elle doit commencer par https://…)', 'error'); return; }
-    state.settings.skelloUrl = u;
+    const skello = validateSkelloUrl($('#icsUrl').value);
+    if (skello.error) { toast(skello.error, 'error'); return; }
+    const relay = normalizeRelayUrl($('#icsRelayUrl').value);
+    if (relay.error) {
+      toast(relay.error, 'error');
+      $('#icsRelayUrl').focus();
+      return;
+    }
+    const hadRelay = !!state.settings.relayUrl;
+    state.settings.skelloUrl = skello.url;
+    state.settings.relayUrl = relay.url;
     save();
+    /* Reflète la valeur réellement enregistrée (sans / final) : seule écriture autorisée du champ. */
+    $('#icsRelayUrl').value = relay.url;
     renderSyncInfo();
+    renderRelayError(relay.url);
+    renderRelayNotice(relay.notice);
     updateSyncBtn();
-    toast('URL Skello enregistrée ✓ — bouton « ⟳ Sync Skello » activé');
+    if (relay.url) toast('URL Skello et relais privé enregistrés ✓');
+    else toast(hadRelay ? 'URL Skello enregistrée ✓ — relais privé retiré' : 'URL Skello enregistrée ✓ — bouton « ⟳ Sync Skello » activé');
   });
   $('#icsSyncNowBtn').addEventListener('click', () => syncSkello());
   $('#syncIcsBtn').addEventListener('click', () => syncSkello());
+  $('#icsRelayUrl').addEventListener('input', e => {
+    renderRelayError(e.target.value);
+    renderRelayNotice(normalizeRelayUrl(e.target.value).notice);
+  });
   $('#icsAllowProxy').addEventListener('change', e => {
     state.settings.allowProxy = e.target.checked;
     save();
@@ -1336,6 +1486,17 @@ function init() {
 
   /* Raccourcis clavier */
   document.addEventListener('keydown', e => {
+    /* Dictée vocale : Ctrl+Shift+M (Cmd+Shift+M sur macOS), même dans un dialogue.
+       Traité avant les gardes de dialogue/champ pour ne jamais déclencher les autres raccourcis.
+       preventDefault seulement si la dictée est réellement disponible : sur Firefox ou en
+       extension le raccourci reste au navigateur au lieu d'être avalé sans effet. */
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key || '').toLowerCase() === 'm') {
+      if (dictaReady) {
+        e.preventDefault();
+        if (!e.repeat) dictaToggle();
+      }
+      return;
+    }
     if (document.querySelector('dialog[open]')) return;
     if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
     if (currentView !== 'planning') return;
@@ -1363,6 +1524,435 @@ function init() {
   window.addEventListener('online', autoSyncIfDue);
 
   render();
+  dictaInit();
+}
+
+/* ---------- Dictaphone ---------- */
+/* Dictée vocale locale (Web Speech API). Le texte reconnu n'est écrit dans le champ
+   qu'à la fin de la dictée ; rien n'est persisté. Tous les états sont éphémères. */
+let dictaSR = null;                    /* constructeur SpeechRecognition (null si absent) */
+let dictaBtn = null, dictaPill = null, dictaPillText = null;
+let dictaLiveEl = null, dictaLiveLast = ''; /* région #dictaLive : transitions courtes, dédupliquées */
+let dictaReady = false;                /* support navigateur + bouton présents */
+let dictaRec = null;                   /* reconnaissance en cours */
+let dictaEnded = false;                /* onend déjà reçu pour dictaRec (ne plus l'abandonner) */
+let dictaState = 'idle';               /* idle | listening | finalizing | error | no-target */
+let dictaWants = false;                /* l'utilisateur veut encore dicter */
+let dictaTarget = null;                /* champ cible, figé au démarrage */
+let dictaLastField = null;             /* dernier champ texte utilisé (focusin) */
+let dictaFinal = '';                   /* segments finaux accumulés */
+let dictaInterim = '';                 /* texte provisoire, affiché dans la pastille seulement */
+let dictaPending = '';                 /* texte non inséré (cible disparue), purgé au départ suivant */
+let dictaCommitted = false;            /* insertion déjà faite pour la session en cours */
+let dictaGotResult = false;
+let dictaT0 = 0;                       /* performance.now() au démarrage */
+let dictaRestarts = 0;
+let dictaGen = 0;                      /* génération de session : invalide les timers périmés */
+let dictaTickTimer = null, dictaRestartTimer = null, dictaFinalizeTimer = null;
+let dictaSilenceTimer = null, dictaErrorTimer = null, dictaHostDialog = null;
+
+const DICTA_MAX_MS = 300000;           /* 5 min de dictée maximum */
+const DICTA_MAX_RESTARTS = 20;         /* relances automatiques maximum (sans aucun résultat final) */
+const DICTA_SILENCE_MS = 10000;        /* arrêt après 10 s sans rien entendre */
+const DICTA_ERROR_MS = 3000;           /* durée d'affichage d'un message */
+const DICTA_FINAL_GRACE_MS = 600;      /* délai laissé au dernier résultat après stop() */
+
+/* Timers de session : annulés ensemble à chaque sortie d'écoute. */
+function dictaClearTimers() {
+  clearInterval(dictaTickTimer); dictaTickTimer = null;
+  clearTimeout(dictaRestartTimer); dictaRestartTimer = null;
+  clearTimeout(dictaFinalizeTimer); dictaFinalizeTimer = null;
+  clearTimeout(dictaSilenceTimer); dictaSilenceTimer = null;
+}
+function dictaAbortRec(rec) {
+  if (!rec) return;
+  try { rec.abort(); } catch (e) { /* déjà arrêtée */ }
+}
+
+/* Mise en forme du texte dicté (pure, sans DOM) :
+   - espaces multiples réduits, bords nettoyés ;
+   - hésitations françaises autonomes retirées (euh, heu, hmm) uniquement entre
+     espaces/virgules. « bah », « ben » et « voilà » sont des mots réels : les
+     supprimer abîmait le texte, ils ne sont plus dans la liste ;
+   - virgules orphelines (, , / ,.) nettoyées ;
+   - espace insécable devant ; : ! ? » et après « quand le signe est collé.
+     Le schéma d'URL (http://, https://) et l'heure (12:30) restent intacts ;
+     une suite ?! !? !! ne reçoit qu'une seule insécable, devant le groupe entier. */
+function dictaFmt(text) {
+  const base = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (!base) return '';
+  const s = base
+    .replace(/(^|[\s,])(?:euh|heu|hmm)(?=$|[\s,])/gi, '$1')
+    .replace(/\s*,\s*,/g, ',')
+    .replace(/,\s*\./g, '.')
+    .replace(/^[\s,]+|[\s,]+$/g, '')
+    .replace(/\s+/g, ' ');
+  /* Plus aucun mot réel après nettoyage : on rend le texte d'origine intact (mieux
+     qu'une chaîne vide, qui ferait perdre la dictée). */
+  if (!/[\p{L}\p{N}]/u.test(s)) return base;
+  return s
+    /* Ponctuation haute : la suite entière est traitée comme un seul signe. */
+    .replace(/([^\s\u00A0])([;!?»]+)/g, '$1\u00A0$2')
+    /* Deux-points : insécable seulement s'il est suivi d'un blanc/ponctuation ou
+       s'il termine le texte, ce qui exclut « http:// » et « 12:30 ». */
+    .replace(/([^\s\u00A0]):(?=[\s,.;!?»]|$)(?!\/\/)/g, '$1\u00A0:')
+    .replace(/«(?=\S)/g, '«\u00A0');
+}
+
+function dictaIsField(el) {
+  if (!el || !el.tagName) return false;
+  if (el.tagName === 'TEXTAREA') return true;
+  if (el.tagName !== 'INPUT') return false;
+  const t = String(el.getAttribute('type') || 'text').toLowerCase();
+  return t === 'text' || t === 'search' || t === 'email' || t === 'tel' || t === 'url';
+}
+/* Un champ n'est une cible valable que s'il est réellement affiché et utilisable :
+   pas de rect (display:none, parent replié), aucun ancêtre [hidden] / .hidden,
+   et si le champ vit dans un <dialog>, ce dialogue doit être ouvert. */
+function dictaIsUsable(el) {
+  if (!el || !el.isConnected || el.disabled || el.readOnly) return false;
+  if (el.getClientRects().length === 0) return false;
+  for (let n = el; n; n = n.parentElement) {
+    if (n.hasAttribute('hidden') || n.classList.contains('hidden')) return false;
+    if (getComputedStyle(n).display === 'none') return false;
+  }
+  const dlg = el.closest('dialog');
+  return !dlg || dlg.open;
+}
+function dictaResolveTarget() {
+  if (dictaIsField(document.activeElement) && dictaIsUsable(document.activeElement)) return document.activeElement;
+  /* Repli sur le dernier champ texte : conservé uniquement s'il passe le même test
+     (sinon on insérerait dans un champ masqué, fermé ou démonté). */
+  if (dictaIsField(dictaLastField) && dictaIsUsable(dictaLastField)) return dictaLastField;
+  return null;
+}
+
+/* Insertion dans le champ cible : au curseur, espace de jonction, événement input
+   pour que les listeners/sauvegardes existants s'exécutent, curseur après le texte. */
+function dictaInsert(raw) {
+  const el = dictaTarget;
+  let text = dictaFmt(raw);
+  if (!text) return;
+  /* Cible démontée (fenêtre fermée, liste re-rendue) : insérer est impossible, mais
+     abandonner en silence perdrait la dictée. On la rend visible (toast) et audible
+     (#dictaLive), et on la garde jusqu'au prochain départ. */
+  if (!el || !el.isConnected) {
+    dictaPending = text;
+    const msg = 'Dictée non insérée (fenêtre fermée) : ' + text;
+    dictaSay(msg);
+    toast(msg, 'error');
+    return;
+  }
+  if (el.disabled || el.readOnly) return;
+  /* Fenêtre fermée mais nœud toujours présent : on insère quand même (le focus est
+     simplement ignoré par le navigateur) plutôt que de perdre le texte. */
+  const hasSel = typeof el.selectionStart === 'number' && typeof el.selectionEnd === 'number';
+  const start = hasSel ? el.selectionStart : el.value.length;
+  const end = hasSel ? el.selectionEnd : start;
+  const before = el.value.slice(0, start);
+  const after = el.value.slice(end);
+  /* Jonction : au plus un espace de chaque côté, jamais de doublon.
+     À gauche : espace si le caractère précédent n'est pas un blanc et que le texte
+     ne commence pas par une ponctuation basse.
+     À droite : espace si le caractère suivant n'est pas un blanc et que le texte ne
+     finit ni par un blanc ni par une ponctuation (sinon « Début fin » + « milieu »
+     donnerait « Début milieufin »). Le curseur reste après cet espace ajouté. */
+  if (before && !/\s$/.test(before) && !/^[.,;:!?»]/.test(text)) text = ' ' + text;
+  else if (/\s$/.test(before) && /^\s/.test(text)) text = text.replace(/^\s+/, '');
+  if (/\s$/.test(text) && /^\s/.test(after)) text = text.replace(/\s+$/, '');
+  if (after && !/^\s/.test(after) && !/[\s.,;:!?»…]$/.test(text)) text += ' ';
+  el.value = before + text + after;
+  el.focus({ preventScroll: true });
+  try { el.setSelectionRange(start + text.length, start + text.length); } catch (e) { /* type email : pas de curseur */ }
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function dictaSetButton(on) {
+  if (!dictaBtn) return;
+  dictaBtn.classList.toggle('is-listening', !!on);
+  dictaBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
+function dictaSetPill(text, isError) {
+  if (!dictaPill) return;
+  dictaPillText.textContent = text;
+  dictaPill.classList.toggle('is-error', !!isError);
+  dictaPill.hidden = false;
+}
+function dictaHidePill() {
+  if (!dictaPill) return;
+  dictaPill.hidden = true;
+  dictaPill.classList.remove('is-error');
+}
+/* La pastille est purement visuelle (index.html : aria-hidden). Les lecteurs
+   d'écran ne reçoivent que des transitions courtes, jamais le chrono ni le texte
+   provisoire ; une chaîne identique à la précédente n'est pas répétée. */
+function dictaSay(msg) {
+  if (!dictaLiveEl || !msg) return;
+  if (msg === dictaLiveLast) return;
+  dictaLiveLast = msg;
+  dictaLiveEl.textContent = msg;
+}
+function dictaShowMessage(msg, state) {
+  /* Sans état explicite on conserve l'état courant (ex. finalizing) : l'ancien
+     repli sur 'error' n'était jamais atteint et pouvait casser la finalisation. */
+  if (state) dictaState = state;
+  clearTimeout(dictaErrorTimer);
+  dictaSetPill(msg, true);
+  dictaSay(msg);
+  dictaErrorTimer = setTimeout(() => {
+    dictaErrorTimer = null;
+    if (dictaState === 'error' || dictaState === 'no-target') dictaState = 'idle';
+    dictaHidePill();
+  }, DICTA_ERROR_MS);
+}
+function dictaPillListening() {
+  const elapsed = Math.max(0, performance.now() - dictaT0);
+  const sec = Math.floor(elapsed / 1000);
+  let txt = `🎙️ Écoute… ${pad2(Math.floor(sec / 60))}:${pad2(sec % 60)}`;
+  if (DICTA_MAX_MS - elapsed <= 60000) txt += ' — 1 min restante';
+  if (dictaInterim) {
+    /* Découpe par points de code : slice(0,60) pouvait couper une paire de
+       substituts (emoji, idéogramme rare) et afficher un caractère cassé. */
+    const chars = Array.from(dictaInterim);
+    const it = chars.length > 60 ? `${chars.slice(0, 60).join('').trim()}…` : dictaInterim;
+    txt += ` — ${it}`;
+  }
+  dictaSetPill(txt, false);
+}
+function dictaPushFinal(t) {
+  const s = String(t || '').replace(/\s+/g, ' ').trim();
+  if (!s) return;
+  dictaFinal = dictaFinal ? `${dictaFinal} ${s}` : s;
+}
+
+/* Silence : après une première utterance, 10 s sans son ni résultat => arrêt propre
+   (le texte final déjà reçu est inséré ; aucun message si quelque chose a été entendu). */
+function dictaArmSilence() {
+  clearTimeout(dictaSilenceTimer);
+  dictaSilenceTimer = null;
+  if (!dictaWants || dictaState !== 'listening' || !dictaGotResult) return;
+  dictaSilenceTimer = setTimeout(() => {
+    dictaSilenceTimer = null;
+    if (dictaState !== 'listening') return;
+    dictaStop(dictaFinal.trim() ? null : 'Rien entendu, réessayez');
+  }, DICTA_SILENCE_MS);
+}
+
+/* Échec de démarrage (iOS/Safari : start() hors geste utilisateur). On s'arrête
+   franchement au lieu de relancer en boucle. */
+function dictaLaunchFailed(rec) {
+  if (dictaRec !== rec) return;
+  dictaClearTimers();
+  dictaRec = null;
+  dictaEnded = true;
+  dictaAbortRec(rec);
+  dictaGen++;
+  dictaWants = false;
+  dictaInterim = '';
+  dictaSetButton(false);
+  dictaShowMessage('Dictée interrompue — appuyez sur le micro pour reprendre', 'error');
+}
+
+function dictaLaunch() {
+  if (!dictaWants || !dictaSR) return;
+  let rec;
+  try { rec = new dictaSR(); } catch (e) { dictaStop(); return; }
+  dictaRec = rec;
+  dictaEnded = false;
+  rec.lang = 'fr-FR';
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.onsoundstart = () => { if (dictaRec === rec && dictaWants) dictaArmSilence(); };
+  rec.onresult = ev => {
+    if (dictaRec !== rec) return;
+    let interim = '', got = false;
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      const t = r[0] ? r[0].transcript : '';
+      if (t.trim()) got = true;
+      if (r.isFinal) {
+        dictaPushFinal(t);
+        /* Chaque résultat final remet le compteur de relances à zéro : Safari clôt
+           l'utterance à chaque fin de phrase, une longue dictée ne doit donc pas
+           mourir au 20e redémarrage. Plafond réel = l'horloge (DICTA_MAX_MS). */
+        if (t.trim()) dictaRestarts = 0;
+      } else interim += t;
+    }
+    if (got) dictaGotResult = true;
+    dictaInterim = interim.trim();
+    dictaArmSilence();
+    if (dictaState === 'listening') dictaPillListening();
+  };
+  rec.onerror = ev => {
+    if (dictaRec !== rec) return;
+    const code = ev && ev.error;
+    if (code === 'aborted' || code === 'no-speech') return; /* silence : on reste à l'écoute */
+    if (code === 'not-allowed' || code === 'service-not-allowed') {
+      dictaStop('Micro refusé — autorisez le micro dans votre navigateur');
+      return;
+    }
+    if (code === 'network') { dictaStop('Connexion requise pour la transcription'); return; }
+    dictaStop(); /* autre erreur (audio-capture…) : arrêt propre, sans message */
+  };
+  rec.onend = () => {
+    if (dictaRec !== rec) return;
+    dictaEnded = true;
+    clearTimeout(dictaSilenceTimer); dictaSilenceTimer = null;
+    /* Arrêt demandé : un dernier résultat final peut encore arriver par onresult.
+       On ne coupe donc pas ici, le timer de finalisation insère le texte. */
+    if (dictaState === 'finalizing') return;
+    if (!dictaWants) { dictaFinish(); return; }
+    /* Horloge et plafond de relances sont deux causes distinctes : deux messages. */
+    if (performance.now() - dictaT0 >= DICTA_MAX_MS) {
+      dictaStop('Dictée arrêtée (5 min maximum)');
+      return;
+    }
+    if (dictaRestarts >= DICTA_MAX_RESTARTS) {
+      dictaStop('Dictée interrompue — relancez');
+      return;
+    }
+    dictaRestarts++;
+    clearTimeout(dictaRestartTimer);
+    dictaRestartTimer = setTimeout(() => { dictaRestartTimer = null; dictaLaunch(); }, 250);
+  };
+  /* start() dans le timer de relance n'est pas un geste utilisateur : Safari peut
+     lever une exception ou renvoyer une promesse rejetée. Dans les deux cas on
+     affiche une erreur et on ne relance pas. */
+  try {
+    const p = rec.start();
+    if (p && typeof p.catch === 'function') p.catch(() => dictaLaunchFailed(rec));
+  } catch (e) {
+    dictaLaunchFailed(rec);
+  }
+}
+
+function dictaStop(msg) {
+  if (dictaState === 'finalizing') { if (msg) dictaShowMessage(msg); return; }
+  dictaWants = false;
+  dictaClearTimers();
+  const rec = dictaRec;
+  if (!rec) { if (msg) dictaShowMessage(msg); dictaFinish(); return; }
+  const gen = dictaGen;
+  dictaState = 'finalizing';
+  dictaSetButton(false);
+  dictaSetPill('⏳ Transcription…', false);
+  dictaSay('Transcription en cours');
+  try { rec.stop(); } catch (e) { /* déjà arrêtée */ }
+  dictaFinalizeTimer = setTimeout(() => { /* 600 ms : dernier résultat éventuel */
+    dictaFinalizeTimer = null;
+    if (gen !== dictaGen) return;
+    if (dictaRec === rec) {
+      if (!dictaEnded) { dictaAbortRec(rec); dictaEnded = true; }
+      dictaRec = null;
+    }
+    dictaFinish();
+  }, DICTA_FINAL_GRACE_MS);
+  if (msg) dictaShowMessage(msg);
+}
+
+function dictaFinish() {
+  dictaClearTimers();
+  const rec = dictaRec;
+  dictaRec = null;
+  if (!dictaEnded) dictaAbortRec(rec);
+  dictaEnded = false;
+  dictaGen++;
+  dictaState = 'idle';
+  dictaWants = false;
+  dictaInterim = '';
+  dictaGotResult = false;
+  dictaSetButton(false);
+  const text = dictaFinal.replace(/\s+/g, ' ').trim();
+  dictaFinal = '';
+  /* Annonce avant insertion : un échec d'insertion doit rester la dernière info lue. */
+  if (!dictaErrorTimer) dictaSay('Dictée arrêtée');
+  /* Garde d'unicité : deux chemins de sortie ne peuvent pas insérer deux fois. */
+  if (text && !dictaCommitted) { dictaCommitted = true; dictaInsert(text); }
+  if (!dictaErrorTimer) dictaHidePill();
+}
+
+function dictaStart() {
+  if (!dictaReady || dictaState === 'listening' || dictaState === 'finalizing') return;
+  const el = dictaResolveTarget();
+  if (!el) { dictaShowMessage("Sélectionnez d'abord une zone de texte", 'no-target'); return; }
+  clearTimeout(dictaErrorTimer); dictaErrorTimer = null;
+  dictaClearTimers();
+  dictaAbortRec(dictaRec);
+  dictaRec = null;
+  dictaEnded = false;
+  /* Le texte non inséré d'une session précédente n'est jamais réinséré (il a déjà
+     été signalé) et une nouvelle session doit être audible sans déduplication. */
+  if (dictaPending) dictaPending = '';
+  dictaLiveLast = '';
+  dictaGen++;
+  dictaTarget = el;
+  dictaFinal = ''; dictaInterim = ''; dictaGotResult = false;
+  dictaCommitted = false;
+  dictaRestarts = 0; dictaWants = true;
+  dictaState = 'listening';
+  dictaT0 = performance.now();
+  dictaSetButton(true);
+  dictaSay('Dictée démarrée');
+  dictaPillListening();
+  dictaTickTimer = setInterval(() => {
+    if (dictaState !== 'listening') return;
+    if (performance.now() - dictaT0 >= DICTA_MAX_MS) { dictaStop('Dictée arrêtée (5 min maximum)'); return; }
+    dictaPillListening();
+  }, 250); /* ~4 rafraîchissements/s */
+  dictaLaunch();
+}
+function dictaToggle() {
+  if (!dictaReady) return;
+  if (dictaState === 'listening') dictaStop();
+  else if (dictaState !== 'finalizing') dictaStart();
+}
+
+function dictaMount(container) {
+  if (!container || !dictaBtn || !dictaPill) return;
+  container.appendChild(dictaBtn);
+  container.appendChild(dictaPill);
+}
+
+function dictaInit() {
+  dictaSR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  dictaBtn = $('#dictaBtn');
+  dictaPill = $('#dictaPill');
+  dictaPillText = $('#dictaPillText');
+  dictaLiveEl = $('#dictaLive');   /* région d'état pour les lecteurs d'écran (facultative) */
+  /* Non supporté ou extension Firefox : bouton masqué pour toujours, aucun throw. */
+  if (!dictaSR || IS_EXTENSION || !dictaBtn || !dictaPill || !dictaPillText) {
+    if (dictaBtn) dictaBtn.hidden = true;
+    if (dictaPill) dictaPill.hidden = true;
+    return;
+  }
+  dictaReady = true;
+  dictaBtn.hidden = false;
+  dictaBtn.setAttribute('aria-pressed', 'false');
+  dictaPill.hidden = true;
+  dictaPill.classList.remove('is-error');
+  /* preventDefault souris uniquement : le champ garde focus + curseur au clic desktop,
+     alors qu'annuler pointerdown sur iOS empêcherait le click (bouton inopérant). */
+  dictaBtn.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') e.preventDefault(); });
+  dictaBtn.addEventListener('click', () => dictaToggle());
+  document.addEventListener('focusin', e => { if (dictaIsField(e.target)) dictaLastField = e.target; });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && (dictaState === 'listening' || dictaState === 'finalizing')) dictaStop();
+  });
+  /* Top layer : on déplace les contrôles dans le .dialog-body du dialogue ouvert,
+     et on les ramène dans <body> à la fermeture (ou dans le dialogue restant). */
+  $$('dialog').forEach(d => d.addEventListener('toggle', () => {
+    if (d.open) {
+      dictaMount(d.querySelector('.dialog-body') || d);
+      dictaHostDialog = d;
+      return;
+    }
+    if (dictaHostDialog !== d) return;
+    dictaHostDialog = null;
+    if (dictaState === 'listening' || dictaState === 'finalizing') dictaStop();
+    const open = $$('dialog[open]').pop() || null;
+    dictaMount(open ? (open.querySelector('.dialog-body') || open) : document.body);
+    dictaHostDialog = open;
+  }));
 }
 
 init();
