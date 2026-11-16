@@ -303,8 +303,9 @@
     <label class="field"><span>Relais privé (optionnel)</span>
       <input type="url" id="icsRelayUrl" inputmode="url" autocomplete="url" placeholder="https://relais.exemple.fr ou http://localhost:8080" aria-describedby="icsRelayHelp icsRelayError">
     </label>
-    <div class="help-line small" id="icsRelayHelp">Votre propre serveur : dès qu'il est configuré, seuls l'accès direct et ce relais sont utilisés — aucun relais public, même si la case ci-dessous est cochée. Il ne voit que l'URL du calendrier. https:// obligatoire ; http:// accepté uniquement pour localhost (relais local sans TLS). Laissez vide pour utiliser les relais publics, si vous les autorisez, en cas de blocage CORS.</div>
+    <div class="help-line small" id="icsRelayHelp">Votre propre serveur : dès qu'il est configuré, seuls l'accès direct et ce relais sont utilisés — aucun relais public, même si la case ci-dessous est cochée. Il ne voit que l'URL du calendrier. Indiquez l'URL de base seule, sans /ics (l'app l'ajoute) : un /ics collé par erreur est retiré automatiquement. https:// obligatoire ; http:// accepté uniquement pour localhost (relais local sans TLS). Laissez vide pour utiliser les relais publics, si vous les autorisez, en cas de blocage CORS.</div>
     <div class="warn-line hidden" id="icsRelayError" role="status"></div>
+    <div class="help-line small hidden" id="icsRelayNotice" role="status"></div>
     <label class="check">
       <input type="checkbox" id="icsAllowProxy" checked>
       <span>Si Skello bloque la demande directe (CORS) <b>et qu'aucun relais privé n'est configuré</b>, passer par un relais public. <span class="muted small">⚠️ Votre URL contient un jeton privé : via un relais public, elle transite par un serveur tiers. Méthodes 100 % privées : un relais privé, ou le fichier .ics téléchargé.</span></span>
