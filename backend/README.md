@@ -137,7 +137,7 @@ build) et aucun secret n'y est stocké.
 | Symptôme | Cause probable |
 | --- | --- |
 | `403 forbidden_host` | hôte amont absent de `CRENO_ALLOWED_HOSTS`, ou résolution vers une IP privée |
-| `429 rate_limited` | plus de `CRENO_RATE_LIMIT` requêtes/min depuis cette IP (`Retry-After`) |
+| `429 rate_limited` | plus de `CRENO_RATE_LIMIT` requêtes/min depuis cette IP (`Retry-After`) ; `GET`/`HEAD /healthz` n'y touche jamais (sonde Docker jamais limitée même seau plein), `/ics` et `POST /healthz` restent limités |
 | `502 upstream_error` | Skello a échoué ou refusé : URL expirée, jeton révoqué, panne amont |
 | `504 timeout` | amont plus lent que `CRENO_TIMEOUT_SECS` ; la connexion TCP/TLS initiale est plafonnée à 5 s, donc un hôte mort (TLS injoignable) échoue en ~5 s même avec `CRENO_TIMEOUT_SECS=120` |
 | requête bloquée côté navigateur (CORS) | origine non autorisée (`CRENO_ALLOWED_ORIGINS`) ou `CRENO_ALLOW_EXTENSION=0` avec l'extension |
