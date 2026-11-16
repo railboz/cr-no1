@@ -707,19 +707,20 @@ mod tests {
 
     #[tokio::test]
     async fn rate_limit_returns_429_with_retry_after() {
+        // `/healthz` is exempt from the limiter, so the charged route is the
+        // one under test here: `evil.example` is outside the allowlist, which
+        // makes the first request a cheap `403` that still spends its token.
+        const CHARGED: &str = "/ics?url=https%3A%2F%2Fevil.example%2Fx";
+
         let mut config = config();
         config.rate_limit_per_minute = 1;
         config.rate_burst = 1;
 
         let app = crate::app(AppState::new(config));
-        let first = app
-            .clone()
-            .oneshot(get("/healthz"))
-            .await
-            .expect("infallible");
-        assert_eq!(first.status(), StatusCode::OK);
+        let first = app.clone().oneshot(get(CHARGED)).await.expect("infallible");
+        assert_eq!(first.status(), StatusCode::FORBIDDEN);
 
-        let second = app.oneshot(get("/healthz")).await.expect("infallible");
+        let second = app.oneshot(get(CHARGED)).await.expect("infallible");
         assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
         assert!(
             second
