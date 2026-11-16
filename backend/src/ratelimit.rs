@@ -5,6 +5,11 @@
 //! `X-Forwarded-For` is *not* trusted, because a spoofable header would turn the
 //! limiter into a no-op. Behind a reverse proxy, the proxy must enforce its own
 //! limit or the relay must bind to loopback.
+//!
+//! The liveness probe (`GET`/`HEAD /healthz`) is exempt: it spends no token, so
+//! a Docker healthcheck sharing the client IP with browse traffic can never be
+//! answered `429` and restart an otherwise healthy container. Every other path
+//! and method is charged as usual.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -12,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::extract::{ConnectInfo, Request, State};
+use axum::http::{Method, Request as HttpRequest};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
@@ -21,6 +27,20 @@ use crate::error::RelayError;
 const MAX_TRACKED: usize = 8192;
 /// Buckets untouched for this long are dropped when the table is pruned.
 const IDLE_TTL: Duration = Duration::from_secs(600);
+
+/// Liveness path that bypasses the limiter (see [`is_exempt`]).
+pub(crate) const HEALTHZ_PATH: &str = "/healthz";
+
+/// Whether `request` skips the limiter.
+///
+/// Only the liveness probe, and only with the methods its route serves: a
+/// `POST /healthz` is charged (and then rejected by the router), so the
+/// exemption cannot be used to flood an arbitrary method. Preflights never reach
+/// this layer — CORS answers them first — and must not be exempted here.
+fn is_exempt<B>(request: &HttpRequest<B>) -> bool {
+    let method = request.method();
+    (method == Method::GET || method == Method::HEAD) && request.uri().path() == HEALTHZ_PATH
+}
 
 #[derive(Debug, Clone, Copy)]
 struct Bucket {
@@ -93,11 +113,18 @@ impl RateLimiter {
 }
 
 /// Axum middleware charging one token per request to the peer address.
+///
+/// The liveness probe is answered without touching the bucket (see
+/// [`is_exempt`]), so a healthcheck never competes with browse traffic.
 pub async fn middleware(
     State(limiter): State<Arc<RateLimiter>>,
     request: Request,
     next: Next,
 ) -> Response {
+    if is_exempt(&request) {
+        return next.run(request).await;
+    }
+
     let ip = request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
@@ -182,5 +209,34 @@ mod tests {
         let now = Instant::now();
         assert!(limiter.check_at(ip(6), now).is_ok());
         assert!(limiter.check_at(ip(6), now).is_err());
+    }
+
+    fn probe_request(method: Method, uri: &str) -> HttpRequest<()> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .body(())
+            .expect("request builds")
+    }
+
+    #[test]
+    fn only_the_liveness_probe_is_exempt() {
+        for method in [Method::GET, Method::HEAD] {
+            assert!(is_exempt(&probe_request(method.clone(), HEALTHZ_PATH)));
+            // The exemption is path based: a query string changes nothing.
+            assert!(is_exempt(&probe_request(
+                method.clone(),
+                "/healthz?probe=1"
+            )));
+            // Neither a near miss nor another route may slip through.
+            assert!(!is_exempt(&probe_request(method.clone(), "/healthz/")));
+            assert!(!is_exempt(&probe_request(method.clone(), "/ics")));
+        }
+        for method in [Method::POST, Method::OPTIONS, Method::PUT, Method::DELETE] {
+            assert!(
+                !is_exempt(&probe_request(method.clone(), HEALTHZ_PATH)),
+                "{method} /healthz must stay charged"
+            );
+        }
     }
 }

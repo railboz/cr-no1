@@ -11,7 +11,7 @@ Base URL is user-configured in the app (e.g. `https://relais.example.fr`). Singl
 
 `If-None-Match` uses the RFC 9110 weak comparison: the `W/` prefix is ignored, the value may be a comma-separated list, surrounding whitespace is trimmed, and the bare `*` matches any current representation (so it always revalidates into a `304`). A quoted `"*"` is an ordinary opaque tag and does not match. Errors are never cached (`Cache-Control: no-store`).
 
-CORS: allowed origins are `null` (file://) **only when `CRENO_ALLOW_FILE_ORIGIN=1`**, `moz-extension://<anything>` only when `CRENO_ALLOW_EXTENSION=1`, `http://localhost:<port>`, `http://127.0.0.1:<port>` and the exact origins of `CRENO_ALLOWED_ORIGINS`. Never `*`. A refused origin is served normally but without `Access-Control-Allow-Origin`; `Vary: Origin` is always sent. Methods `GET, OPTIONS`, allowed request header `If-None-Match`, exposed response header `ETag`. `OPTIONS` preflights are answered before the rate limiter, so a preflight is never charged nor throttled.
+CORS: allowed origins are `null` (file://) **only when `CRENO_ALLOW_FILE_ORIGIN=1`**, `moz-extension://<anything>` only when `CRENO_ALLOW_EXTENSION=1`, `http://localhost:<port>`, `http://127.0.0.1:<port>` and the exact origins of `CRENO_ALLOWED_ORIGINS`. Never `*`. A refused origin is served normally but without `Access-Control-Allow-Origin`; `Vary: Origin` is always sent. Methods `GET, OPTIONS`, allowed request header `If-None-Match`, exposed response header `ETag`. `OPTIONS` preflights are answered before the rate limiter, so a preflight is never charged nor throttled. Likewise `GET`/`HEAD /healthz` never reach the limiter: the liveness probe is never charged and never answered `429`, even from a client whose bucket is exhausted (a Docker healthcheck shares its IP with the browse traffic). Every other path and method is charged as usual, including `POST /healthz`.
 
 `Origin: null` is off by default because it is not "the local file": every sandboxed iframe (or `data:`/`blob:` document) of any site sends it too.
 
@@ -42,6 +42,6 @@ Errors: body `{"error":"<code>"}`, `Content-Type: application/json; charset=utf-
 | `busy` | 503 | every fetch slot taken (16 concurrent), plus `Retry-After: 1` |
 | `timeout` | 504 | above `CRENO_TIMEOUT_SECS`, **or** DNS unresolved within `min(CRENO_TIMEOUT_SECS, 5 s)` |
 
-A malformed request is answered before a fetch slot is taken, so it is never reported as `busy`. `/healthz` never takes a slot and always answers, even when every fetch is saturated.
+A malformed request is answered before a fetch slot is taken, so it is never reported as `busy`. `/healthz` never takes a slot, is never rate-limited, and always answers, even when every fetch is saturated.
 
 Config (env, validated at startup, defaults): `CRENO_BIND=127.0.0.1:8080`, `CRENO_ALLOWED_HOSTS=api.skello.io` (each entry needs at least two labels, so a bare TLD such as `io` is refused), `CRENO_MAX_BYTES=2097152`, `CRENO_TIMEOUT_SECS=12` (the DNS step never gets more than 5 s of it), `CRENO_RATE_LIMIT=30` (per minute per IP, burst 10), `CRENO_ALLOW_EXTENSION=0`, `CRENO_ALLOW_FILE_ORIGIN=0`, `CRENO_ALLOWED_ORIGINS=` (empty).
