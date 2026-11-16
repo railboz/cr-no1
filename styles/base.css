@@ -1,0 +1,263 @@
+/* ============================================================
+   Créno — base.css
+   Reset, canvas, typographie de base, contrôles natifs, chrome
+   de défilement. Chargé APRÈS tokens.css et AVANT layout.css.
+
+   Ne contient AUCUN composant nommé (.btn, .field, .panel, .chip…)
+   et aucune règle de mise en page (.view, .topbar, .week-grid…).
+
+   Spécificité : les règles de contrôle sont écrites en :where()
+   (spécificité nulle) pour que components.css puisse tout
+   surcharger sans !important.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. Reset
+   ------------------------------------------------------------ */
+*,
+*::before,
+*::after{ box-sizing: border-box }
+
+html{
+  height: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body{
+  margin: 0;
+  min-height: 100%;
+  font-family: var(--font);
+  font-size: var(--fs-4);
+  line-height: var(--lh-base);
+  color: var(--c-text);
+  background-color: var(--c-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1, h2, h3, h4, h5, h6,
+p, figure, blockquote, dl, dd, ul, ol{
+  margin: 0;
+  padding: 0;
+}
+
+ul, ol{ list-style: none }
+
+img, svg, video, canvas{
+  display: block;
+  max-width: 100%;
+}
+
+svg{ flex-shrink: 0 }
+
+a{
+  color: var(--c-info);
+  text-decoration-thickness: .08em;
+  text-underline-offset: .2em;
+}
+
+b, strong{ font-weight: var(--fw-bold) }
+
+fieldset{
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------
+   2. Canvas — halo d'ambiance
+   Couche fixe et non interactive : remplace l'ancien
+   background-attachment:fixed (repaint à chaque frame).
+   Désactivée sur téléphone : décision batterie existante.
+   ------------------------------------------------------------ */
+body::before{
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(1100px 520px at 85% -10%, rgba(52, 211, 153, .09), transparent 60%),
+    radial-gradient(900px 500px at -10% 0%, rgba(91, 156, 255, .07), transparent 60%);
+}
+
+@media (max-width: 719px){
+  body::before{ display: none }
+  /* Corps de texte à 16px sur téléphone (lisibilité) ;
+     les tailles explicites des composants ne sont pas affectées. */
+  body{ font-size: var(--fs-5) }
+}
+
+/* ------------------------------------------------------------
+   3. Titres — échelle par défaut
+   ------------------------------------------------------------ */
+h1, h2, h3, h4, h5, h6{
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  letter-spacing: -.01em;
+  text-wrap: balance;
+}
+
+h1{ font-size: var(--fs-9) }
+h2{ font-size: var(--fs-7) }
+h3{ font-size: var(--fs-6) }
+h4{ font-size: var(--fs-5) }
+h5, h6{ font-size: var(--fs-4) }
+
+@media (min-width: 1024px){
+  h2{ font-size: var(--fs-8) }
+}
+
+/* ------------------------------------------------------------
+   4. Contrôles natifs
+   ------------------------------------------------------------ */
+button{
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+input,
+select,
+textarea{
+  font: inherit;
+  color: inherit;
+}
+
+/* Champs de saisie — :where() = spécificité nulle, surchargeable */
+input:where(:not([type=checkbox], [type=radio], [type=file], [type=range], [type=color], [type=hidden])),
+select,
+textarea{
+  width: 100%;
+  min-height: var(--hit);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border-field);
+  border-radius: var(--r-md);
+  background-color: var(--c-s2);
+  color: var(--c-text);
+  font-size: var(--fs-4);
+  line-height: var(--lh-snug);
+  transition:
+    border-color var(--dur-2) var(--ease),
+    background-color var(--dur-2) var(--ease);
+  /* Pas d'outline:none : l'anneau global est défini dans utilities.css */
+}
+
+textarea{
+  min-height: calc(var(--hit) * 1.6);
+  resize: vertical;
+  line-height: var(--lh-base);
+}
+
+input:where(:hover),
+select:hover,
+textarea:hover{
+  border-color: var(--c-text-off);
+}
+
+/* Le focus est signalé par le bord (couleur de marque) + anneau global */
+input:where(:focus-visible),
+select:focus-visible,
+textarea:focus-visible{
+  border-color: var(--c-accent);
+}
+
+/* Champs désactivés / invalides (aria-invalid est posé par app.js) */
+input:where(:disabled),
+select:disabled,
+textarea:disabled{
+  color: var(--c-text-3);
+  border-color: var(--c-border);
+  background-color: var(--c-s1);
+  cursor: not-allowed;
+}
+
+input:where([aria-invalid="true"]),
+select[aria-invalid="true"],
+textarea[aria-invalid="true"]{
+  border-color: var(--c-danger);
+}
+
+/* Cases et boutons radio */
+input[type=checkbox],
+input[type=radio]{
+  accent-color: var(--c-accent);
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Champs date/heure : chiffres alignés */
+input[type=date],
+input[type=time],
+input[type=datetime-local],
+input[type=month]{
+  font-variant-numeric: tabular-nums;
+}
+
+/* color-scheme:dark rend déjà l'icône claire : on ne l'inverse plus
+   (l'ancien filter:invert(.7) l'assombrissait à tort). */
+input[type=date]::-webkit-calendar-picker-indicator,
+input[type=time]::-webkit-calendar-picker-indicator,
+input[type=datetime-local]::-webkit-calendar-picker-indicator,
+input[type=month]::-webkit-calendar-picker-indicator{
+  opacity: .7;
+  cursor: pointer;
+}
+
+input[type=date]:hover::-webkit-calendar-picker-indicator,
+input[type=time]:hover::-webkit-calendar-picker-indicator,
+input[type=datetime-local]:hover::-webkit-calendar-picker-indicator,
+input[type=month]:hover::-webkit-calendar-picker-indicator{
+  opacity: 1;
+}
+
+::placeholder{
+  color: var(--c-text-3);   /* 5.41:1 sur --c-s2 */
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------
+   5. Sélection & défilement
+   ------------------------------------------------------------ */
+::selection{
+  background: rgba(52, 211, 153, .32);           /* repli sans color-mix */
+  background: color-mix(in oklab, var(--c-accent) 32%, transparent);
+  color: var(--c-text);
+}
+
+*{
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-s3) transparent;
+}
+
+::-webkit-scrollbar{
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track{
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb{
+  background: var(--c-s3);
+  border: 2px solid var(--c-s1);
+  border-radius: var(--r-pill);
+}
+
+::-webkit-scrollbar-thumb:hover{
+  background: color-mix(in oklab, var(--c-s3) 70%, var(--c-text-off));
+}
+
+::-webkit-scrollbar-corner{
+  background: transparent;
+}

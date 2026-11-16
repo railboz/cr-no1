@@ -1,0 +1,139 @@
+/* ============================================================
+   Créno — utilities.css
+   Chargé EN DERNIER. Uniquement : visibilité, lecteurs d'écran,
+   focus global, reduced-motion global, scroll-padding global,
+   helpers neutres.
+
+   Les règles de focus et de motion sont volontairement en fin de
+   cascade : elles doivent gagner sur les composants. Le focus
+   utilise :where() (spécificité nulle) pour rester surchargeable
+   par un composant qui a besoin d'un anneau spécifique.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. Visibilité
+   app.js s'appuie sur .hidden ET sur l'attribut [hidden]
+   (dictaIsUsable teste getComputedStyle(...).display === 'none') :
+   ne JAMAIS masquer autrement (visibility/opacity/content-visibility
+   laisseraient l'élément focusable et dicter-able).
+   ------------------------------------------------------------ */
+.hidden{ display: none !important }
+
+[hidden]{ display: none !important }
+
+/* ------------------------------------------------------------
+   2. Lecteurs d'écran
+   ------------------------------------------------------------ */
+.sr-only{
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------
+   3. Texte — utilitaires historiques
+   .small ne force PLUS la couleur : combiner avec .muted.
+   (l'ancienne règle color:var(--muted) empêchait tout texte
+   petit dans une autre couleur)
+   ------------------------------------------------------------ */
+.muted{ color: var(--c-text-2) }
+
+.small{
+  font-size: var(--fs-2);
+  line-height: var(--lh-snug);
+}
+
+/* ------------------------------------------------------------
+   4. Helpers neutres
+   ------------------------------------------------------------ */
+.num{ font-variant-numeric: tabular-nums }   /* chiffres alignés */
+
+.isolate{ isolation: isolate }               /* couche sticky + z-index */
+
+.cq{ container-type: inline-size }           /* portée de container query */
+
+/* ------------------------------------------------------------
+   5. Focus global
+   Anneau : #34d399 (8.77:1 sur --c-s2) — l'ancien halo
+   rgba(52,211,153,.15) mesurait 1.35:1 et ne satisfaisait pas
+   WCAG 2.4.11. Aucun outline:none ne doit subsister ailleurs.
+   ------------------------------------------------------------ */
+:where(a, button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])):focus-visible{
+  outline: var(--focus-w) solid var(--c-accent);
+  outline-offset: var(--focus-off);
+  border-radius: inherit;
+}
+
+/* Sur aplat de couleur (bloc de shift, absence) l'anneau accent
+   serait illisible : liseré de canvas + halo accent.
+   CONTRACTUEL — ne pas dupliquer dans planning.css. */
+.shift:focus-visible,
+.md-shift:focus-visible,
+.absence:focus-visible,
+.md-absence:focus-visible{
+  outline: var(--focus-w) solid var(--c-bg);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px var(--c-accent);
+}
+
+/* Le focus ne doit jamais être masqué par la barre du haut ni
+   par la nav basse (WCAG 2.2 « focus non obscurci »). */
+html{
+  scroll-padding-top: calc(var(--topbar-h) + var(--sp-3));
+  scroll-padding-bottom: var(--sp-6);
+}
+
+@media (max-width: 719px){
+  html{
+    scroll-padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--sp-3));
+  }
+}
+
+/* ------------------------------------------------------------
+   6. Mouvement réduit — interrupteur global
+   Couvre les transitions de composants ET les animations pilotées
+   par app.js (md-anim-*, sheetUp, dictaPulse).
+   ------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce){
+  *,
+  *::before,
+  *::after{
+    animation-duration: .01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .progress,
+  .mini-bar,
+  .bar,
+  .hbar{
+    transition: none !important;
+  }
+}
+
+/* ------------------------------------------------------------
+   7. Contraste forcé (Windows HC / mode contraste élevé)
+   ------------------------------------------------------------ */
+@media (forced-colors: active){
+  :where(a, button, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible{
+    outline-color: Highlight;
+  }
+
+  .shift,
+  .absence,
+  .md-shift,
+  .md-absence{
+    border: 1px solid ButtonText;
+    forced-color-adjust: none;
+  }
+}
