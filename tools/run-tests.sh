@@ -4,6 +4,8 @@
 #   bash tools/run-tests.sh
 #
 # Suites: syntax (node --check), app relay E2E (real browser + route interception),
+#         UI contract E2E (18 assertions: week nav, salary/stats, Skello panel,
+#         persistence, template invariants — real browser, offline),
 #         extension package (builds the zip itself; SKIP only if tools/build-extension.sh
 #         is absent).
 # Env: CRENO_REPO, CRENO_BROWSER, PLAYWRIGHT_MODULE (forwarded to the E2E harness).
@@ -31,7 +33,7 @@ record() { # record <PASS|FAIL|SKIP> <label> <detail>
 
 # ---------------------------------------------------------------- syntax
 SYNTAX_OK=1
-for f in app.js extension/background.js tests/e2e/relay-sync.mjs tests/extension/check.mjs; do
+for f in app.js extension/background.js tests/e2e/relay-sync.mjs tests/e2e/ui-contract.mjs tests/extension/check.mjs; do
   if ! node --check "$f"; then
     echo "  syntax error: $f"
     SYNTAX_OK=0
@@ -42,7 +44,7 @@ if ! bash -n tools/run-tests.sh; then
   SYNTAX_OK=0
 fi
 if [ "$SYNTAX_OK" -eq 1 ]; then
-  record PASS "syntax (node --check app.js + background.js + 2 harness files, bash -n run-tests.sh)"
+  record PASS "syntax (node --check app.js + background.js + 3 harness files, bash -n run-tests.sh)"
 else
   record FAIL "syntax"
 fi
@@ -57,6 +59,19 @@ else
     record FAIL "e2e relay sync (harness/setup error, see above)"
   else
     record FAIL "e2e relay sync (see failed cases above)"
+  fi
+fi
+
+# ---------------------------------------------------------------- UI contract
+echo "--- UI contract E2E ---"
+if node tests/e2e/ui-contract.mjs; then
+  record PASS "e2e ui contract"
+else
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    record FAIL "e2e ui contract (harness/setup error, see above)"
+  else
+    record FAIL "e2e ui contract (see failed assertions above)"
   fi
 fi
 
