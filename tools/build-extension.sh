@@ -248,7 +248,7 @@ csp = m.get('content_security_policy')
 if csp != "script-src 'self'; object-src 'none';": fail('CSP absente ou inattendue : %r' % csp)
 gecko = m.get('browser_specific_settings', {}).get('gecko', {})
 if gecko.get('id') != 'creno@loganbozier.fr': fail('gecko.id inattendu')
-if gecko.get('strict_min_version') != '115.0': fail('strict_min_version inattendu')
+if gecko.get('strict_min_version') != '121.0': fail('strict_min_version inattendu')
 if gecko.get('data_collection_permissions', {}).get('required') != ['none']:
     fail('data_collection_permissions.required != ["none"]')
 

@@ -4,7 +4,7 @@
    Chargé APRÈS planning.css / mobile.css, AVANT dicta.css.
 
    Périmètre strict :
-   - Absences : .absence-item (--ac posée par app.js), .a-*
+   - Absences : .absence-item (--c posée par app.js), .a-*
    - Statistiques : .cards (variantes locales de .stat-card),
      .bars/.bar-*, .hbar-*, #statPayBar
    - Profil : .profile-*, .form-grid, barre d'action sticky
@@ -16,8 +16,8 @@
      .badge-status .color-dot sont dans
      components.css : on les CONSOMME, on ne les redéclare pas ici
      (sauf variantes locales explicitement listées).
-   - Couleurs dynamiques : --ac (absence, posée par app.js) avec repli
-     sur --c puis --c-absence (contrat DESIGN §3 cible : --c).
+   - Couleurs dynamiques : --c (couleur d'absence, posée par app.js) avec
+     repli sur --c-absence (contrat DESIGN §3).
    - Aucun hex littéral : uniquement var(--…) et color-mix().
    - Aucun !important, aucun outline:none.
    ============================================================ */
@@ -33,7 +33,7 @@
 
 /* ------------------------------------------------------------
    2. Absences — liste (§4.18)
-   app.js pose style="--ac:…" ; on accepte aussi --c (cible DESIGN).
+   app.js pose style="--c:…" ; repli --c-absence si la variable manque.
    ------------------------------------------------------------ */
 .absence-item{
   display:flex;
@@ -44,7 +44,7 @@
   padding: var(--sp-5) var(--sp-6);
   background: var(--c-s1);
   border:1px solid var(--c-border);
-  border-left:4px solid var(--ac, var(--c, var(--c-absence)));
+  border-left:4px solid var(--c, var(--c-absence));
   border-radius: var(--r-md);
 }
 
@@ -59,8 +59,8 @@
   display:grid;
   place-items:center;
   border-radius: var(--r-md);
-  background: color-mix(in oklab, var(--ac, var(--c, var(--c-absence))) 14%, transparent);
-  color: var(--ac, var(--c, var(--c-absence)));
+  background: color-mix(in oklab, var(--c, var(--c-absence)) 14%, transparent);
+  color: var(--c, var(--c-absence));
   font-size: var(--fs-6);
   line-height:1;
 }

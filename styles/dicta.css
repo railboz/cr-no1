@@ -98,11 +98,11 @@
 dialog:has(.dialog-body > #dictaBtn){ scroll-padding-bottom:76px }
 
 /* Les toasts occupent déjà le coin bas-droit : on les décale pour libérer le bouton. */
-@media (min-width: 721px){
+@media (min-width: 720px){
   #toasts{ right:84px }
 }
 
-@media (max-width: 720px){
+@media (max-width: 719px){
   /* Au-dessus de la navigation fixe : même calcul que #toasts, côté droit
      (--nav-h = 66 px ; 6 px de marge + 48 px de bouton + 12 px de gap). */
   #dictaBtn{ right:14px; bottom:calc(var(--nav-h) + var(--sp-3) + env(safe-area-inset-bottom)) }
