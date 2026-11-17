@@ -228,6 +228,7 @@
 
 .est-cell{
   display: flex;
+  width: 100%;
   flex-direction: column;
   justify-content: center;
   gap: var(--sp-1);
@@ -276,6 +277,7 @@
 }
 
 .est-hours{
+  display: block;
   color: var(--c-text-3);
   font-size: var(--fs-1);
   font-variant-numeric: tabular-nums;
@@ -408,9 +410,17 @@
   overflow-wrap: anywhere;
 }
 
+/* <button> : neutralise les styles UA (largeur au contenu, texte centré)
+   pour reproduire exactement le rendu du bloc d'origine. */
+/* Rendu mesuré d'origine : inline-block. On le fige ici (au lieu du
+   display:inline-block implicite du UA) avec la largeur et l'alignement
+   que portaient les styles inline. */
 .est-card{
+  display: inline-block;
+  width: 100%;
   min-width: 0;
   padding: var(--sp-3) var(--sp-4);
+  text-align: left;
   background: var(--c-s2);
   border: 1px solid var(--c-border-soft);
   border-radius: var(--r-md);
@@ -655,3 +665,9 @@
    contrat — l'affichage est fait uniquement dans mobile.css).
    ------------------------------------------------------------ */
 .mobile-day{ display: none }
+
+/* Boutons de la vue mobile : un <button> prend la largeur de son contenu
+   par défaut, on rétablit le bloc plein. (mobile.css ne peut pas être
+   touché par cette passe ; aucune de ses règles ne fixe la largeur.) */
+.md-est-head,
+.md-absence{ width: 100% }

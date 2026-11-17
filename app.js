@@ -265,9 +265,9 @@ function renderEstPanel() {
     const t = minutesInWeek(weekStart, est.id);
     const from = toISO(weekStart), to = toISO(addDays(weekStart, 6));
     const cnt = state.shifts.filter(s => s.estId === est.id && s.date >= from && s.date <= to).length;
-    return `<button type="button" class="est-card" data-est="${est.id}" style="width:100%;text-align:left" title="Modifier cet établissement" aria-label="Ouvrir l'établissement ${esc(est.name)}">
-      <div class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span>${esc(est.name)}</div>
-      <div class="est-hours">${t ? fmtDur(t) : '0h'} · ${cnt} shift${cnt > 1 ? 's' : ''} cette semaine</div>
+    return `<button type="button" class="est-card" data-est="${est.id}" title="Modifier cet établissement" aria-label="Ouvrir l'établissement ${esc(est.name)}">
+      <span class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span>${esc(est.name)}</span>
+      <span class="est-hours">${t ? fmtDur(t) : '0h'} · ${cnt} shift${cnt > 1 ? 's' : ''} cette semaine</span>
     </button>`;
   }).join('');
 }
@@ -298,9 +298,9 @@ function renderGrid() {
   } else {
     state.establishments.forEach(est => {
       const t = minutesInWeek(weekStart, est.id);
-      html += `<button type="button" class="est-cell sticky-left" data-est="${est.id}" style="width:100%" title="Modifier cet établissement" aria-label="Ouvrir l'établissement ${esc(est.name)}">
-        <div class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span><span>${esc(est.name)}</span></div>
-        <div class="est-hours">${t ? fmtDur(t) : '—'}</div>
+      html += `<button type="button" class="est-cell sticky-left" data-est="${est.id}" title="Modifier cet établissement" aria-label="Ouvrir l'établissement ${esc(est.name)}">
+        <span class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span><span>${esc(est.name)}</span></span>
+        <span class="est-hours">${t ? fmtDur(t) : '—'}</span>
       </button>`;
       days.forEach(d => {
         const iso = toISO(d);
@@ -435,14 +435,14 @@ function renderMobileView() {
       if (!shifts.length && !abs.length) return;
       const total = shifts.reduce((t, s) => t + durMinutes(s.start, s.end), 0);
       body += `<div class="md-est">
-        <button type="button" class="md-est-head" data-est="${est.id}" style="width:100%">
+        <button type="button" class="md-est-head" data-est="${est.id}">
           <span class="est-dot" style="--c:${colorSafe(est.color)}"></span>
           <span>${esc(est.name)}</span>
           ${total ? `<span class="md-est-total">${fmtDur(total)}</span>` : ''}
         </button>
         ${abs.map(a => {
           const meta = Object.hasOwn(AB_TYPES, a.type) ? AB_TYPES[a.type] : AB_TYPES['Autre'];
-          return `<button type="button" class="md-absence" data-absence="1" style="--c:${meta.color};width:100%">${meta.icon} ${esc(a.type.toUpperCase())}</button>`;
+          return `<button type="button" class="md-absence" data-absence="1" style="--c:${meta.color}">${meta.icon} ${esc(a.type.toUpperCase())}</button>`;
         }).join('')}
         ${shifts.map(s => shiftMarkup(s, est)).join('')}
       </div>`;
@@ -564,9 +564,9 @@ function renderEstablishments() {
   list.innerHTML = state.establishments.map(est => {
     const mine = state.shifts.filter(s => s.estId === est.id);
     const total = mine.reduce((t, s) => t + durMinutes(s.start, s.end), 0);
-    return `<button type="button" class="est-card" data-est="${est.id}" style="width:100%;text-align:left" title="Modifier cet établissement" aria-label="Ouvrir l'établissement ${esc(est.name)}">
-      <div class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span>${esc(est.name)}</div>
-      <div class="est-hours">${fmtDur(total)} · ${mine.length} shift${mine.length > 1 ? 's' : ''} au total</div>
+    return `<button type="button" class="est-card" data-est="${est.id}" title="Modifier cet établissement" aria-label="Ouvrir l'établissement ${esc(est.name)}">
+      <span class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span>${esc(est.name)}</span>
+      <span class="est-hours">${fmtDur(total)} · ${mine.length} shift${mine.length > 1 ? 's' : ''} au total</span>
     </button>`;
   }).join('');
 }
