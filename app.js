@@ -43,15 +43,6 @@ function fmtDur(m) {
 }
 const fmtEur = n => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-function shade(hex, f) { /* f < 0 => assombrit, f > 0 => éclaircit */
-  const n = parseInt(hex.slice(1), 16);
-  let r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
-  const t = f < 0 ? 0 : 255, p = Math.abs(f);
-  r = Math.round((t - r) * p + r);
-  g = Math.round((t - g) * p + g);
-  b = Math.round((t - b) * p + b);
-  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
-}
 function fmtRange(mon) {
   const sun = addDays(mon, 6);
   return `${mon.getDate()} ${MONTHS[mon.getMonth()]} – ${sun.getDate()} ${MONTHS[sun.getMonth()]} ${sun.getFullYear()}`;
@@ -85,6 +76,10 @@ function blankState() {
 const RE_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const RE_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const RE_COLOR = /^#[0-9a-f]{6}$/i;
+/* Couleur insérée dans un attribut style (--c / --ac) : toute valeur non conforme est
+   remplacée par l'accent. Pas `transparent` : l'encre des shifts est sombre (--c-shift-ink),
+   un fond transparent la rendrait illisible sur la surface. */
+const colorSafe = v => RE_COLOR.test(v) ? v : '#34d399';
 const RE_ID = /^[\w.:-]{1,64}$/;
 const safeId = v => (typeof v === 'string' && RE_ID.test(v)) ? v : uid();
 function migrate(data) {
@@ -106,7 +101,7 @@ function migrate(data) {
     .map(x => ({ ...x, id: safeId(x.id), label: String(x.label ?? ''), note: String(x.note ?? '') }));
   s.absences = (Array.isArray(data.absences) ? data.absences : []).filter(isObj)
     .filter(x => RE_ISO.test(x.start) && RE_ISO.test(x.end) && x.end >= x.start)
-    .map(x => ({ ...x, id: safeId(x.id), type: AB_TYPES[x.type] ? x.type : 'Autre', note: String(x.note ?? ''), status: String(x.status || 'Confirmée') }));
+    .map(x => ({ ...x, id: safeId(x.id), type: Object.hasOwn(AB_TYPES, x.type) ? x.type : 'Autre', note: String(x.note ?? ''), status: String(x.status || 'Confirmée') }));
   s.availability = (Array.isArray(data.availability) && data.availability.length === 7)
     ? data.availability.slice()
     : [true, true, true, true, true, false, false];
@@ -179,6 +174,9 @@ function getInitials() {
 function toast(msg, type = 'ok', ms = 2600) {
   const t = document.createElement('div');
   t.className = 'toast ' + type;
+  /* role posé AVANT l'insertion : certains lecteurs d'écran n'annoncent pas
+     un nœud dont le rôle apparaît après son rattachement au document. */
+  t.setAttribute('role', type === 'error' ? 'alert' : 'status');
   t.textContent = msg;
   $('#toasts').appendChild(t);
   setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 350); }, ms);
@@ -200,9 +198,18 @@ function confirmDialog(title, msg, okLabel = 'Confirmer', danger = true) {
 function settleConfirm(v) { if (cfResolve) { const r = cfResolve; cfResolve = null; r(v); } }
 
 /* ---------- Rendu global ---------- */
+/* aria-current="page" suit l'onglet actif (premier chargement compris). */
+function syncNavAria(v) {
+  $$('#mainNav .nav-link').forEach(b => {
+    const on = b.dataset.view === v;
+    if (on) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+}
 function switchView(v) {
   currentView = v;
   $$('#mainNav .nav-link').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  syncNavAria(v);
   $$('.view').forEach(sec => sec.classList.toggle('hidden', sec.id !== 'view-' + v));
   render();
 }
@@ -258,11 +265,20 @@ function renderEstPanel() {
     const t = minutesInWeek(weekStart, est.id);
     const from = toISO(weekStart), to = toISO(addDays(weekStart, 6));
     const cnt = state.shifts.filter(s => s.estId === est.id && s.date >= from && s.date <= to).length;
-    return `<div class="est-card" data-est="${est.id}" title="Modifier cet établissement">
-      <div class="est-name"><span class="est-dot" style="background:${est.color}"></span>${esc(est.name)}</div>
-      <div class="est-hours">${t ? fmtDur(t) : '0h'} · ${cnt} shift${cnt > 1 ? 's' : ''} cette semaine</div>
-    </div>`;
+    return `<button type="button" class="est-card" data-est="${est.id}" title="Modifier cet établissement" aria-label="Ouvrir l'établissement ${esc(est.name)}">
+      <span class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span>${esc(est.name)}</span>
+      <span class="est-hours">${t ? fmtDur(t) : '0h'} · ${cnt} shift${cnt > 1 ? 's' : ''} cette semaine</span>
+    </button>`;
   }).join('');
+}
+/* Markup d'un shift : la couleur de l'établissement passe par --c, le CSS décide du rendu.
+   Source unique pour les deux vues qui affichent un .shift (grille semaine + vue mobile). */
+function shiftMarkup(s, est) {
+  return `<button type="button" class="shift" data-id="${s.id}" style="--c:${colorSafe(est.color)}" title="${esc(s.note || '')}">
+            <span class="shift-time">${esc(s.start)} – ${esc(s.end)}</span>
+            <span class="shift-dur">${fmtDur(durMinutes(s.start, s.end))}</span>
+            <span class="shift-label">${esc(s.label || 'SHIFT')}</span>
+          </button>`;
 }
 function renderGrid() {
   const grid = $('#weekGrid');
@@ -282,27 +298,32 @@ function renderGrid() {
   } else {
     state.establishments.forEach(est => {
       const t = minutesInWeek(weekStart, est.id);
-      html += `<div class="est-cell sticky-left" data-est="${est.id}" title="Modifier cet établissement">
-        <div class="est-name"><span class="est-dot" style="background:${est.color}"></span><span>${esc(est.name)}</span></div>
-        <div class="est-hours">${t ? fmtDur(t) : '—'}</div>
-      </div>`;
+      html += `<button type="button" class="est-cell sticky-left" data-est="${est.id}" title="Modifier cet établissement" aria-label="Ouvrir l'établissement ${esc(est.name)}">
+        <span class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span><span>${esc(est.name)}</span></span>
+        <span class="est-hours">${t ? fmtDur(t) : '—'}</span>
+      </button>`;
       days.forEach(d => {
         const iso = toISO(d);
         const dayShifts = state.shifts.filter(s => s.estId === est.id && s.date === iso).sort((a, b) => mins(a.start) - mins(b.start));
         const dayAbs = state.absences.filter(a => a.start <= iso && iso <= a.end);
-        html += `<div class="cell ${iso === today ? 'today' : ''}" data-est="${est.id}" data-date="${iso}">`;
+        /* Cellule vide : cible de clic autonome, donc un vrai bouton (focusable, Entrée
+           et Espace l'activent, `closest('.cell')` reste inchangé). Cellule occupée :
+           elle contient des boutons (.absence/.shift) et un <button> ne peut pas en
+           contenir d'autres — elle reste un conteneur, le clavier atteint ses enfants. */
+        const empty = !dayAbs.length && !dayShifts.length;
+        const cls = `cell ${iso === today ? 'today' : ''}`;
+        const attrs = `data-est="${est.id}" data-date="${iso}"`;
+        html += empty
+          ? `<button type="button" class="${cls}" ${attrs} aria-label="Ajouter un shift le ${d.getDate()} ${MONTHS[d.getMonth()]}"></button>`
+          : `<div class="${cls}" ${attrs}>`;
         dayAbs.forEach(a => {
-          const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
-          html += `<div class="absence" data-absence="1" style="border-color:${meta.color}55;color:${meta.color};background:${meta.color}14" title="${esc(a.note || a.type)}">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
+          const meta = Object.hasOwn(AB_TYPES, a.type) ? AB_TYPES[a.type] : AB_TYPES['Autre'];
+          html += `<button type="button" class="absence" data-absence="1" style="--c:${meta.color}" title="${esc(a.note || a.type)}">${meta.icon} ${esc(a.type.toUpperCase())}</button>`;
         });
         dayShifts.forEach(s => {
-          html += `<button type="button" class="shift" data-id="${s.id}" style="background:linear-gradient(135deg, ${est.color}, ${shade(est.color, -0.3)})" title="${esc(s.note || '')}">
-            <span class="shift-time">${esc(s.start)} – ${esc(s.end)}</span>
-            <span class="shift-dur">${fmtDur(durMinutes(s.start, s.end))}</span>
-            <span class="shift-label">${esc(s.label || 'SHIFT')}</span>
-          </button>`;
+          html += shiftMarkup(s, est);
         });
-        html += '</div>';
+        html += empty ? '</button>' : '</div>';
       });
     });
   }
@@ -318,7 +339,7 @@ function renderSummary() {
   $('#summaryBar').innerHTML = `
     <div class="sum-item"><span class="sum-num">${ws.length}</span><span>shift${ws.length > 1 ? 's' : ''}</span></div>
     <div class="sum-item"><span class="sum-num">${fmtDur(total)}</span><span>travaillées</span></div>
-    <div class="progress-wrap"><div class="progress" style="width:${pct}%"></div></div>
+    <div class="progress-wrap"><div class="progress" style="--v:${pct}%"></div></div>
     <div class="progress-label">Objectif ${obj} h · ${pct} %</div>
     <div class="sum-item"><span class="sum-num sum-money">${fmtEur(pay)}</span><span>estimés · ${rate.toLocaleString('fr-FR')} €/h</span></div>
     ${ws.length === 0 ? '<div class="progress-label">💡 Cliquez sur une case pour créer un shift</div>' : ''}`;
@@ -371,11 +392,11 @@ function renderMobileView() {
       const abs = state.absences.filter(a => a.start <= iso && iso <= a.end);
 
       let cards = abs.map(a => {
-        const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
-        return `<div class="md-absence ${past ? 'past' : ''}" data-absence="1" style="border-color:${meta.color}55;color:${meta.color};background:${meta.color}14">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
+        const meta = Object.hasOwn(AB_TYPES, a.type) ? AB_TYPES[a.type] : AB_TYPES['Autre'];
+        return `<button type="button" class="md-absence ${past ? 'past' : ''}" data-absence="1" style="--c:${meta.color}">${meta.icon} ${esc(a.type.toUpperCase())}</button>`;
       }).join('');
       cards += dayShifts.map(({ s, est }) => `
-        <button type="button" class="md-shift ${past ? 'past' : ''}" data-id="${s.id}" style="--c:${est.color}" title="${esc(s.note || '')}">
+        <button type="button" class="md-shift ${past ? 'past' : ''}" data-id="${s.id}" style="--c:${colorSafe(est.color)}" title="${esc(s.note || '')}">
           <span class="md-bar"></span>
           <span class="md-row"><span class="md-time">${esc(s.start)} – ${esc(s.end)}</span><span class="md-estname">${esc(est.name)}</span><span class="md-dur">${fmtDur(durMinutes(s.start, s.end))}</span></span>
           <span class="md-label">${esc(s.label || 'SHIFT')}</span>
@@ -392,7 +413,7 @@ function renderMobileView() {
       </div>`;
     }
 
-    const sync = state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello">⟳ Sync</button>' : '';
+    const sync = state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello" aria-label="Synchroniser depuis Skello">⟳ Sync</button>' : '';
     wrap.innerHTML = `
       <div class="md-date">${sync}<b>Semaine ${isoWeek(weekStart)}</b> · ${esc(fmtRange(weekStart))}</div>
       <div class="md-days">${daysHtml}</div>`;
@@ -406,7 +427,7 @@ function renderMobileView() {
 
   let body = '';
   if (!state.establishments.length) {
-    body = '<div class="md-empty" id="mdNoEst">🏢 Aucun établissement<br><span class="small">Touchez ici pour en ajouter un (menu → Établissements)</span></div>';
+    body = '<button type="button" class="md-empty" id="mdNoEst">🏢 Aucun établissement<br><span class="small">Touchez ici pour en ajouter un (menu → Établissements)</span></button>';
   } else {
     state.establishments.forEach(est => {
       const shifts = state.shifts.filter(s => s.estId === est.id && s.date === iso).sort((a, b) => mins(a.start) - mins(b.start));
@@ -414,30 +435,25 @@ function renderMobileView() {
       if (!shifts.length && !abs.length) return;
       const total = shifts.reduce((t, s) => t + durMinutes(s.start, s.end), 0);
       body += `<div class="md-est">
-        <div class="md-est-head" data-est="${est.id}">
-          <span class="est-dot" style="background:${est.color}"></span>
+        <button type="button" class="md-est-head" data-est="${est.id}">
+          <span class="est-dot" style="--c:${colorSafe(est.color)}"></span>
           <span>${esc(est.name)}</span>
           ${total ? `<span class="md-est-total">${fmtDur(total)}</span>` : ''}
-        </div>
+        </button>
         ${abs.map(a => {
-          const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
-          return `<div class="md-absence" data-absence="1" style="border-color:${meta.color}55;color:${meta.color};background:${meta.color}14">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
+          const meta = Object.hasOwn(AB_TYPES, a.type) ? AB_TYPES[a.type] : AB_TYPES['Autre'];
+          return `<button type="button" class="md-absence" data-absence="1" style="--c:${meta.color}">${meta.icon} ${esc(a.type.toUpperCase())}</button>`;
         }).join('')}
-        ${shifts.map(s => `
-          <button type="button" class="shift" data-id="${s.id}" style="background:linear-gradient(135deg, ${est.color}, ${shade(est.color, -0.3)})" title="${esc(s.note || '')}">
-            <span class="shift-time">${esc(s.start)} – ${esc(s.end)}</span>
-            <span class="shift-dur">${fmtDur(durMinutes(s.start, s.end))}</span>
-            <span class="shift-label">${esc(s.label || 'SHIFT')}</span>
-          </button>`).join('')}
+        ${shifts.map(s => shiftMarkup(s, est)).join('')}
       </div>`;
     });
     if (!body) {
-      body = `<div class="md-empty">😌 Rien de prévu le ${DAYS_LONG[mobileDayIdx]} ${day.getDate()} ${MONTHS[day.getMonth()]}<br><span class="small">Touchez ici pour ajouter un shift</span></div>`;
+      body = `<button type="button" class="md-empty">😌 Rien de prévu le ${DAYS_LONG[mobileDayIdx]} ${day.getDate()} ${MONTHS[day.getMonth()]}<br><span class="small">Touchez ici pour ajouter un shift</span></button>`;
     }
   }
 
   /* ⟳ Sync compact dans la ligne de date (uniquement si une URL Skello est enregistrée) */
-  const sync = state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello">⟳ Sync</button>' : '';
+  const sync = state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello" aria-label="Synchroniser depuis Skello">⟳ Sync</button>' : '';
 
   wrap.innerHTML = `
     <div class="md-date">${sync}<b>${DAYS_LONG[mobileDayIdx]}</b> ${day.getDate()} ${MONTHS[day.getMonth()]} ${day.getFullYear()}${iso === today ? ' · <span class="md-today">aujourd&#39;hui</span>' : ''}</div>
@@ -534,7 +550,7 @@ function openEstModal(id) {
 }
 function renderEstColors() {
   $('#estColors').innerHTML = PALETTE.map(c =>
-    `<button type="button" class="color-dot ${c === estModalColor ? 'sel' : ''}" data-color="${c}" style="background:${c}" title="${c}"></button>`
+    `<button type="button" class="color-dot ${c === estModalColor ? 'sel' : ''}" data-color="${c}" style="--c:${c}" title="${c}" aria-label="Couleur ${c}" aria-pressed="${c === estModalColor}"></button>`
   ).join('');
 }
 
@@ -548,10 +564,10 @@ function renderEstablishments() {
   list.innerHTML = state.establishments.map(est => {
     const mine = state.shifts.filter(s => s.estId === est.id);
     const total = mine.reduce((t, s) => t + durMinutes(s.start, s.end), 0);
-    return `<div class="est-card" data-est="${est.id}" title="Modifier cet établissement">
-      <div class="est-name"><span class="est-dot" style="background:${est.color}"></span>${esc(est.name)}</div>
-      <div class="est-hours">${fmtDur(total)} · ${mine.length} shift${mine.length > 1 ? 's' : ''} au total</div>
-    </div>`;
+    return `<button type="button" class="est-card" data-est="${est.id}" title="Modifier cet établissement" aria-label="Ouvrir l'établissement ${esc(est.name)}">
+      <span class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span>${esc(est.name)}</span>
+      <span class="est-hours">${fmtDur(total)} · ${mine.length} shift${mine.length > 1 ? 's' : ''} au total</span>
+    </button>`;
   }).join('');
 }
 
@@ -567,12 +583,12 @@ function renderAbsences() {
   empty.classList.add('hidden');
   list.classList.remove('hidden');
   list.innerHTML = state.absences.slice().sort((a, b) => a.start.localeCompare(b.start)).map(a => {
-    const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
+    const meta = Object.hasOwn(AB_TYPES, a.type) ? AB_TYPES[a.type] : AB_TYPES['Autre'];
     const d1 = fromISO(a.start), d2 = fromISO(a.end);
     const dates = a.start === a.end
       ? `le ${d1.getDate()} ${MONTHS[d1.getMonth()]} ${d1.getFullYear()}`
       : `du ${d1.getDate()} ${MONTHS[d1.getMonth()]} au ${d2.getDate()} ${MONTHS[d2.getMonth()]} ${d2.getFullYear()}`;
-    return `<div class="absence-item" style="--ac:${meta.color}">
+    return `<div class="absence-item" style="--c:${meta.color}">
       <div class="a-icon">${meta.icon}</div>
       <div>
         <div class="a-type">${esc(a.type)}</div>
@@ -580,8 +596,8 @@ function renderAbsences() {
       </div>
       <span class="badge-status">✓ ${esc(a.status || 'Confirmée')}</span>
       <div class="a-actions">
-        <button type="button" class="icon-btn" data-edit="${a.id}" title="Modifier">✎</button>
-        <button type="button" class="icon-btn" data-del="${a.id}" title="Supprimer">🗑️</button>
+        <button type="button" class="icon-btn" data-edit="${a.id}" title="Modifier" aria-label="Modifier l'absence">✎</button>
+        <button type="button" class="icon-btn" data-del="${a.id}" title="Supprimer" aria-label="Supprimer l'absence">🗑️</button>
       </div>
     </div>`;
   }).join('');
@@ -610,7 +626,7 @@ function renderStats() {
   const ref = Number(state.profile.refSalary) || 0;
   if (ref > 0) {
     $('#statPayMini').classList.remove('hidden');
-    $('#statPayBar').style.width = Math.min(100, Math.round(pay / ref * 100)) + '%';
+    $('#statPayBar').style.setProperty('--v', Math.min(100, Math.round(pay / ref * 100)) + '%');
     $('#statPaySub').textContent += ` · ${Math.round(pay / ref * 100)} % de ${fmtEur(ref)}`;
   } else {
     $('#statPayMini').classList.add('hidden');
@@ -628,7 +644,7 @@ function renderStats() {
     const pct = Math.round(w.min / max * 100);
     const cur = toISO(w.mon) === toISO(curWeek);
     return `<div class="bar-col">
-      <div class="bar-zone"><div class="bar ${cur ? 'cur' : ''}" style="height:${Math.max(3, pct)}%"><span class="bar-tip">${w.min ? fmtDur(w.min) : ''}</span></div></div>
+      <div class="bar-zone"><div class="bar ${cur ? 'cur' : ''}" style="--v:${pct > 0 ? Math.max(3, pct) : 0}%"><span class="bar-tip">${w.min ? fmtDur(w.min) : ''}</span></div></div>
       <span class="bar-x">S${isoWeek(w.mon)}</span>
     </div>`;
   }).join('');
@@ -644,8 +660,8 @@ function renderStats() {
   const maxEst = Math.max(...byEst.map(x => x.min), 1);
   $('#hbarsEst').innerHTML = byEst.length
     ? byEst.map(x => `<div class="hbar-row">
-        <div class="hbar-key"><span class="est-dot" style="background:${x.color}"></span>${esc(x.name)}</div>
-        <div class="hbar-track"><div class="hbar" style="width:${Math.round(x.min / maxEst * 100)}%;background:${x.color}"></div></div>
+        <div class="hbar-key"><span class="est-dot" style="--c:${colorSafe(x.color)}"></span>${esc(x.name)}</div>
+        <div class="hbar-track"><div class="hbar" style="--v:${Math.round(x.min / maxEst * 100)}%;--c:${colorSafe(x.color)}"></div></div>
         <div class="hbar-val">${fmtDur(x.min)}</div>
       </div>`).join('')
     : '<div class="muted">Pas encore de données sur les 30 derniers jours.</div>';
@@ -653,14 +669,14 @@ function renderStats() {
   const byLabel = {};
   recent.forEach(s => {
     const k = (s.label || 'SHIFT').toUpperCase();
-    byLabel[k] = (byLabel[k] || 0) + durMinutes(s.start, s.end);
+    byLabel[k] = (Object.hasOwn(byLabel, k) ? byLabel[k] : 0) + durMinutes(s.start, s.end);
   });
   const top = Object.entries(byLabel).sort((a, b) => b[1] - a[1]).slice(0, 5);
   const maxL = Math.max(...top.map(x => x[1]), 1);
   $('#hbarsLabels').innerHTML = top.length
     ? top.map(([k, v]) => `<div class="hbar-row">
         <div class="hbar-key">${esc(k)}</div>
-        <div class="hbar-track"><div class="hbar" style="width:${Math.round(v / maxL * 100)}%;background:var(--blue)"></div></div>
+        <div class="hbar-track"><div class="hbar" style="--v:${Math.round(v / maxL * 100)}%"></div></div>
         <div class="hbar-val">${fmtDur(v)}</div>
       </div>`).join('')
     : '<div class="muted">Pas encore de données.</div>';
@@ -691,9 +707,10 @@ function renderProfilePreview() {
   $('#menuEmail').textContent = state.profile.email || 'Aucun e-mail renseigné';
 }
 function renderChips() {
-  $('#availChips').innerHTML = DAYS_LONG.map((d, i) =>
-    `<button type="button" class="chip ${state.availability[i] !== false ? 'on' : ''}" data-i="${i}">${d.charAt(0).toUpperCase() + d.slice(1)}</button>`
-  ).join('');
+  $('#availChips').innerHTML = DAYS_LONG.map((d, i) => {
+    const on = state.availability[i] !== false;
+    return `<button type="button" class="chip ${on ? 'on' : ''}" data-i="${i}" aria-pressed="${on ? 'true' : 'false'}">${d.charAt(0).toUpperCase() + d.slice(1)}</button>`;
+  }).join('');
 }
 
 /* ---------- Import Skello (ICS) ---------- */
@@ -860,13 +877,25 @@ function openIcsModal() {
 }
 function renderSyncInfo() {
   const t = state.settings.lastIcsSync;
-  $('#icsLastSync').textContent = t
-    ? 'Dernière synchro : ' + new Date(t).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
-    : 'Jamais synchronisé';
+  const pill = $('#icsLastSync');
+  if (pill) {
+    pill.textContent = t
+      ? 'Dernière synchro : ' + new Date(t).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
+      : 'Jamais synchronisé';
+    /* Le texte ci-dessus ne décrit que l'état « repos » ; la pastille suit
+       l'état réel de la synchro (busy / error posés par syncSkello). */
+    pill.dataset.state = t ? 'ok' : 'idle';
+  }
   /* #icsRelayUrl n'est rempli qu'à l'ouverture du dialogue (et après un enregistrement réussi) :
      renderSyncInfo est aussi appelé par la synchro automatique et ne doit jamais écraser
      une saisie en cours. L'avertissement du champ relais est géré séparément (renderRelayError). */
   $('#icsSyncNowBtn').disabled = !(state.settings.skelloUrl || '').trim();
+}
+/* État visuel de la pastille de synchro (components.css : idle/ok/busy/error).
+   Le texte reste la propriété exclusive de renderSyncInfo. */
+function setSyncPill(state) {
+  const el = $('#icsLastSync');
+  if (el) el.dataset.state = state;
 }
 /* Signale dans le dialogue un relais enregistré mais inutilisable (URL invalide restaurée). */
 function renderRelayError(raw) {
@@ -891,7 +920,9 @@ function updateSyncBtn() {
 }
 function setSyncBtn(mode) {
   const b = $('#syncIcsBtn');
-  if (b) b.textContent = mode === 'busy' ? '⟳ Synchro…' : '⟳ Sync Skello';
+  if (!b) return;
+  b.textContent = mode === 'busy' ? '⟳ Synchro…' : '⟳ Sync Skello';
+  b.toggleAttribute('aria-busy', mode === 'busy');
 }
 
 /* Récupère l'ICS depuis l'URL enregistrée : direct, puis relais privé, puis relais publics si bloqué */
@@ -1020,7 +1051,9 @@ async function syncSkello(opts = {}) {
   const ctrl = new AbortController();
   icsAbort = ctrl;
   $('#icsSyncNowBtn').disabled = true;
+  $('#icsSyncNowBtn').setAttribute('aria-busy', 'true');
   setSyncBtn('busy');
+  setSyncPill('busy');
   if (!opts.silent) toast('Synchronisation avec Skello…');
 
   const plan = buildIcsRoutes(url, state.settings);
@@ -1044,11 +1077,13 @@ async function syncSkello(opts = {}) {
   icsAbortReason = '';
   icsSyncing = false;
   $('#icsSyncNowBtn').disabled = false;
+  $('#icsSyncNowBtn').removeAttribute('aria-busy');
 
   if (!txt) {
     setSyncBtn('idle');
-    /* App mise en arrière-plan : on abandonne sans alerter, on réessaiera au retour.
+    /* Arrière-plan : pas d'erreur (on réessaiera au retour), on rend l'état de repos.
        Sinon, message actionnable selon la configuration (jamais de relais public en repli). */
+    setSyncPill(abortedByHide ? (state.settings.lastIcsSync ? 'ok' : 'idle') : 'error');
     if (!abortedByHide) {
       if (plan.mode === 'relay-invalid') toast(plan.error, 'error', 9000);
       else if (plan.mode === 'relay') toast(RELAY_UNREACHABLE, 'error', 9000);
@@ -1059,7 +1094,7 @@ async function syncSkello(opts = {}) {
 
   let stats = null;
   try { stats = await applyICSImport(txt, { confirm: false, toast: false }); }
-  catch (e) { console.error('Créno : échec import ICS', e); toast('Import du calendrier impossible', 'error'); }
+  catch (e) { console.error('Créno : échec import ICS', e); setSyncPill('error'); toast('Import du calendrier impossible', 'error'); }
   finally { setSyncBtn('idle'); }
   if (!stats) return;
   state.settings.lastIcsSync = Date.now();
@@ -1132,14 +1167,22 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 function init() {
   /* Navigation */
   $$('#mainNav .nav-link').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
+  syncNavAria(currentView);
 
   /* Menu avatar */
-  $('#avatarBtn').addEventListener('click', e => { e.stopPropagation(); $('#avatarMenu').classList.toggle('hidden'); });
+  const avatarBtn = $('#avatarBtn'), avatarMenu = $('#avatarMenu');
+  const syncAvatarAria = () => {
+    avatarBtn.setAttribute('aria-haspopup', 'true');
+    avatarBtn.setAttribute('aria-expanded', avatarMenu.classList.contains('hidden') ? 'false' : 'true');
+  };
+  syncAvatarAria();
+  avatarBtn.addEventListener('click', e => { e.stopPropagation(); avatarMenu.classList.toggle('hidden'); syncAvatarAria(); });
   document.addEventListener('click', e => {
-    if (!e.target.closest('.avatar-wrap')) $('#avatarMenu').classList.add('hidden');
+    if (!e.target.closest('.avatar-wrap')) { avatarMenu.classList.add('hidden'); syncAvatarAria(); }
   });
   $$('#avatarMenu [data-action]').forEach(b => b.addEventListener('click', () => {
-    $('#avatarMenu').classList.add('hidden');
+    avatarMenu.classList.add('hidden');
+    syncAvatarAria();
     const a = b.dataset.action;
     if (a === 'goto-profile') switchView('profile');
     else if (a === 'goto-establishments') switchView('establishments');
@@ -1495,6 +1538,14 @@ function init() {
         e.preventDefault();
         if (!e.repeat) dictaToggle();
       }
+      return;
+    }
+    /* Échap ferme le menu avatar (ce n'est pas un <dialog> : la fermeture
+       native ne s'applique pas) et rend le focus au bouton qui l'a ouvert. */
+    if (e.key === 'Escape' && !avatarMenu.classList.contains('hidden')) {
+      avatarMenu.classList.add('hidden');
+      syncAvatarAria();
+      avatarBtn.focus();
       return;
     }
     if (document.querySelector('dialog[open]')) return;

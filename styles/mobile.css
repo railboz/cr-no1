@@ -1,0 +1,605 @@
+/* ============================================================
+   Créno — mobile.css
+   Téléphone uniquement (< 720 px) : vue jour (.md-*), liste
+   semaine, barre de navigation fixe du bas, bottom-sheets,
+   offsets du chrome flottant.
+
+   Chargé APRÈS planning.css, AVANT screens.css / utilities.css.
+
+   Le seuil 720 est un CONTRAT : app.js rend les deux arbres en
+   permanence et le basculement est 100 % CSS. Ici on affiche
+   `.mobile-day` et on masque `.planning-layout` (+ #weekGrid).
+   Aucune classe responsive ne doit sortir de cette media query,
+   sauf les @keyframes (conservées telles quelles, pilotées par JS).
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   Animations pilotées par app.js (noms contractuels).
+   app.js ajoute .md-anim-* / .md-bump-* APRÈS un reflow forcé :
+   les keyframes doivent exister, sinon l'animation ne rejoue pas.
+   ------------------------------------------------------------ */
+@keyframes mdSlideNext{
+  from{ opacity: 0; transform: translateX(26px) }
+  to{ opacity: 1; transform: none }
+}
+
+@keyframes mdSlidePrev{
+  from{ opacity: 0; transform: translateX(-26px) }
+  to{ opacity: 1; transform: none }
+}
+
+@keyframes mdBumpNext{
+  30%{ transform: translateX(-10px) }
+}
+
+@keyframes mdBumpPrev{
+  30%{ transform: translateX(10px) }
+}
+
+/* Dialogues en bottom-sheet (< 720). Nom conservé (app.js n'y
+   touche pas, mais la feuille historique l'exposait déjà). */
+@keyframes sheetUp{
+  from{ transform: translateY(var(--sp-10)); opacity: .55 }
+  to{ transform: none; opacity: 1 }
+}
+
+@media (max-width: 719px){
+
+  /* ----------------------------------------------------------
+     1. Bascule de vue (CSS pur) + place pour la nav basse
+     ---------------------------------------------------------- */
+  body{
+    padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  }
+
+  .planning-layout{ display: none }
+  .grid-wrap{ display: none }
+  #weekGrid{ display: none }
+  .mobile-day{ display: block }
+
+  /* ----------------------------------------------------------
+     2. Barre de semaine compacte (2 lignes : navigation / actions)
+     #addShiftBtn et #syncIcsBtn sont remplacés par .md-add et
+     .md-sync dans la vue jour.
+     ---------------------------------------------------------- */
+  .weekbar{
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-4);
+  }
+
+  .weekbar-left{
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    width: 100%;
+  }
+
+  .weekbar-right{ display: none }
+
+  .date-jump{ display: none }
+
+  .week-pill{
+    min-width: 0;
+    padding: 0 var(--sp-4);
+    font-size: var(--fs-2);
+  }
+
+  .week-num{ font-size: var(--fs-1) }
+
+  .md-week-toggle{
+    display: inline-flex;
+    min-height: var(--hit);
+    margin-left: auto;
+  }
+
+  /* ----------------------------------------------------------
+     3. Navigation fixe du bas — safe-area latérale ET basse.
+     --nav-h est la hauteur de référence : tous les offsets du
+     chrome flottant (§8) en dérivent, aucune valeur en dur.
+     ---------------------------------------------------------- */
+  .main-nav{
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 100;
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: space-around;
+    gap: 0;
+    min-height: var(--nav-h);
+    margin: 0;
+    padding:
+      var(--sp-2)
+      max(var(--sp-2), env(safe-area-inset-right))
+      calc(var(--sp-2) + env(safe-area-inset-bottom))
+      max(var(--sp-2), env(safe-area-inset-left));
+    background: var(--c-s1);
+    border-top: 1px solid var(--c-border);
+  }
+
+  .nav-link{
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-1);
+    min-width: 0;
+    min-height: var(--hit);
+    padding: var(--sp-1) var(--sp-2);
+    border-radius: var(--r-md);
+    color: var(--c-text-3);
+    font-size: var(--fs-1);
+    font-weight: var(--fw-semi);
+    line-height: var(--lh-snug);
+    white-space: nowrap;
+  }
+
+  .nav-link svg{
+    width: 16px;
+    height: 16px;
+  }
+
+  .nav-link.active{
+    background: var(--c-accent-soft);
+    color: var(--c-accent);
+  }
+
+  /* ----------------------------------------------------------
+     4. Vue jour / liste semaine — en-tête
+     ---------------------------------------------------------- */
+  .md-date{
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    margin: 0 var(--sp-1) var(--sp-5);
+    color: var(--c-text-2);
+    font-size: var(--fs-3);
+    line-height: var(--lh-snug);
+  }
+
+  .md-date b{
+    color: var(--c-text);
+    font-weight: var(--fw-semi);
+    text-transform: capitalize;
+  }
+
+  .md-today{
+    color: var(--c-info);
+    font-weight: var(--fw-semi);
+  }
+
+  /* Cible tactile 44 px (DESIGN §8.2) */
+  .md-sync{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--hit);
+    min-height: var(--hit);
+    margin-left: auto;
+    padding: 0 var(--sp-5);
+    background: var(--c-s2);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-pill);
+    color: var(--c-accent);
+    font-size: var(--fs-2);
+    font-weight: var(--fw-semi);
+    white-space: nowrap;
+  }
+
+  .md-sync:hover{ background: var(--c-s3) }
+  .md-sync:active{ transform: scale(.96) }
+
+  /* ----------------------------------------------------------
+     5. Vue établissement (jour) — cartes .md-est
+     ---------------------------------------------------------- */
+  .md-list{
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-5);
+  }
+
+  .md-est{
+    padding: var(--sp-5);
+    background: var(--c-s1);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-lg);
+  }
+
+  .md-est-head{
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    min-height: var(--hit);
+    padding-bottom: var(--sp-3);
+    margin-bottom: var(--sp-3);
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--c-border-soft);
+    border-radius: 0;
+    color: var(--c-text-2);
+    font-size: var(--fs-2);
+    font-weight: var(--fw-semi);
+    letter-spacing: .04em;
+    text-align: left;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .md-est-head > span:nth-child(2){
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .md-est-total{
+    margin-left: auto;
+    color: var(--c-text-2);
+    font-size: var(--fs-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* Bloc plein + encre sombre : .shift est réutilisé dans .md-est. */
+  .mobile-day .shift{
+    min-height: 56px;
+    padding: var(--sp-4) var(--sp-5);
+    border-radius: var(--r-md);
+    margin-bottom: var(--sp-2);
+  }
+
+  .mobile-day .shift-time{
+    font-size: var(--fs-5);
+    font-weight: var(--fw-bold);
+  }
+
+  .mobile-day .shift-dur{
+    top: var(--sp-4);
+    right: var(--sp-5);
+    font-size: var(--fs-2);
+  }
+
+  .mobile-day .shift-label{
+    max-width: 68%;
+    font-size: var(--fs-1);
+  }
+
+  .md-absence{
+    --c: var(--c-absence);
+    display: flex;
+    align-items: center;
+    min-height: var(--hit);
+    padding: var(--sp-3) var(--sp-4);
+    margin-bottom: var(--sp-2);
+    background: color-mix(in oklab, var(--c) 8%, transparent);
+    border: 1px dashed color-mix(in oklab, var(--c) 45%, transparent);
+    border-radius: var(--r-sm);
+    color: var(--c);
+    font-size: var(--fs-1);
+    font-weight: var(--fw-semi);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .md-absence.past{ opacity: .55 }
+
+  .md-empty{
+    display: grid;
+    place-items: center;
+    gap: var(--sp-2);
+    min-height: 132px;
+    padding: var(--sp-8) var(--sp-5);
+    background: var(--c-s1);
+    border: 1px dashed var(--c-border-field);
+    border-radius: var(--r-lg);
+    color: var(--c-text-2);
+    font-size: var(--fs-4);
+    text-align: center;
+  }
+
+  .md-empty:hover{
+    background: var(--c-s2);
+    border-color: var(--c-border);
+  }
+
+  .md-empty .small{
+    color: var(--c-text-3);
+    display: block;
+  }
+
+  .md-add{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: var(--hit);
+    margin-top: var(--sp-4);
+  }
+
+  /* ----------------------------------------------------------
+     6. Liste verticale des 7 jours (bouton Semaine)
+     ---------------------------------------------------------- */
+  .md-days{
+    display: flex;
+    flex-direction: column;
+    padding-bottom: var(--sp-5);
+  }
+
+  .md-dayhead{
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    margin: var(--sp-6) var(--sp-1) var(--sp-3);
+    color: var(--c-text-2);
+    font-size: var(--fs-3);
+    font-weight: var(--fw-semi);
+  }
+
+  .md-days .md-dayblock:first-child .md-dayhead{ margin-top: var(--sp-2) }
+
+  .md-hline{
+    flex: 1;
+    height: 1px;
+    background: var(--c-border);
+    border-radius: var(--r-pill);
+  }
+
+  .md-dhead{
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    white-space: nowrap;
+  }
+
+  .md-dhead .md-dnum{
+    color: var(--c-text);
+    font-size: var(--fs-6);
+    font-weight: var(--fw-bold);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .md-dayhead.today{ color: var(--c-info) }
+
+  .md-dayhead.today .md-hline{
+    background: color-mix(in oklab, var(--c-info) 45%, transparent);
+  }
+
+  .md-dayhead.today .md-dnum{
+    display: inline-grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    background: var(--c-info);
+    border-radius: var(--r-pill);
+    color: var(--c-on-info);
+    font-size: var(--fs-5);
+  }
+
+  .md-cards{
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
+
+  .md-shift{
+    position: relative;
+    display: block;
+    width: 100%;
+    min-height: 56px;
+    padding: var(--sp-4) var(--sp-5) var(--sp-4) calc(var(--sp-6) + var(--sp-1));
+    background: var(--c-s1);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-md);
+    color: var(--c-text);
+    text-align: left;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease);
+  }
+
+  .md-shift:hover{
+    background: var(--c-s2);
+    border-color: var(--c-border-field);
+  }
+
+  .md-shift:active{ transform: scale(.995) }
+
+  .md-shift .md-bar{
+    position: absolute;
+    top: var(--sp-3);
+    bottom: var(--sp-3);
+    left: var(--sp-3);
+    width: 5px;
+    background: var(--c, var(--c-accent));
+    border-radius: var(--r-pill);
+  }
+
+  .md-row{
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-4);
+    min-width: 0;
+  }
+
+  .md-time{
+    color: var(--c-text);
+    font-size: var(--fs-5);
+    font-weight: var(--fw-bold);
+    font-variant-numeric: tabular-nums;
+    line-height: var(--lh-snug);
+    white-space: nowrap;
+  }
+
+  .md-estname{
+    flex: 1;
+    min-width: 0;
+    color: var(--c-text-2);
+    font-size: var(--fs-2);
+    letter-spacing: 0;
+    text-transform: uppercase;
+    /* 360 px : « CHANTONNAY DISTRIBUTION » dépassait de 7 px la colonne
+       de 161 px. Le nom passe à la ligne plutôt que d'être tronqué. */
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
+  .md-dur{
+    color: var(--c-text-2);
+    font-size: var(--fs-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .md-label{
+    display: block;
+    margin-top: var(--sp-1);
+    color: var(--c-text-2);
+    font-size: var(--fs-1);
+    font-weight: var(--fw-semi);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .md-shift.past{ opacity: .55 }
+
+  /* Cible tactile 44 px */
+  .md-nochip{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    min-width: var(--hit);
+    min-height: var(--hit);
+    margin: var(--sp-1) auto 0;
+    padding: 0 var(--sp-5);
+    background: var(--c-s2);
+    border: 1px solid var(--c-border-soft);
+    border-radius: var(--r-pill);
+    color: var(--c-text-3);
+    font-size: var(--fs-2);
+    white-space: nowrap;
+  }
+
+  .md-nochip:hover{
+    background: var(--c-s3);
+    color: var(--c-text-2);
+  }
+
+  /* -------- Animations de changement de jour / semaine -------- */
+  .mobile-day.md-anim-next{ animation: mdSlideNext var(--dur-3) var(--ease) }
+  .mobile-day.md-anim-prev{ animation: mdSlidePrev var(--dur-3) var(--ease) }
+  .mobile-day.md-bump-next{ animation: mdBumpNext var(--dur-2) var(--ease) }
+  .mobile-day.md-bump-prev{ animation: mdBumpPrev var(--dur-2) var(--ease) }
+
+  @media (prefers-reduced-motion: reduce){
+    .mobile-day.md-anim-next,
+    .mobile-day.md-anim-prev,
+    .mobile-day.md-bump-next,
+    .mobile-day.md-bump-prev{ animation: none }
+  }
+
+  /* ----------------------------------------------------------
+     7. Résumé de semaine (non sticky en mobile)
+     ---------------------------------------------------------- */
+  .summarybar{
+    gap: var(--sp-3);
+    margin-top: var(--sp-5);
+    padding: var(--sp-4) var(--sp-5);
+  }
+
+  .sum-item{ font-size: var(--fs-2) }
+  .sum-money{ font-size: var(--fs-8) }
+
+  /* ----------------------------------------------------------
+     8. Chrome flottant : offsets dérivés de --nav-h + safe-areas
+     ---------------------------------------------------------- */
+  #toasts{
+    left: calc(var(--sp-5) + env(safe-area-inset-left));
+    right: calc(var(--hit) + var(--sp-7) + env(safe-area-inset-right));
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--sp-4));
+  }
+
+  /* dicta.css (chargé après) affine ces deux offsets ; la valeur
+     de référence reste --nav-h + safe-area, jamais 72/132 px. */
+  #dictaBtn{
+    right: calc(var(--sp-5) + env(safe-area-inset-right));
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--sp-4));
+  }
+
+  /* ----------------------------------------------------------
+     9. Bottom-sheets (< 720) — le pied reste sticky et respire
+        au-dessus de la safe-area.
+     ---------------------------------------------------------- */
+  dialog{
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - var(--sp-6));
+    margin: auto auto 0;
+    border-bottom: 0;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    /* Ombre de feuille (tokens : --sh-sheet) : le panneau est ancré au
+       bas, l'ombre porte vers le haut. Elle ne modifie ni la boîte ni
+       le scroll (pseudo-élément du top layer). */
+    box-shadow: var(--sh-sheet);
+  }
+
+  dialog[open]{ animation: sheetUp var(--dur-3) var(--ease) }
+
+  .dialog-head{
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: calc(var(--sp-5) + var(--sp-3)) var(--sp-5) var(--sp-4);
+    background: var(--c-s1);
+    border-bottom: 1px solid var(--c-border-soft);
+  }
+
+  /* Poignée de préhension (décorative) */
+  .dialog-head::before{
+    content: '';
+    position: absolute;
+    top: var(--sp-3);
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    transform: translateX(-50%);
+    background: var(--c-s3);
+    border-radius: var(--r-pill);
+  }
+
+  .dialog-body{ padding: var(--sp-5) }
+
+  /* Deux colonnes dans la feuille : « Début / Fin » et « Du / Au »
+     tiennent sur une ligne, le sheet reste sous la hauteur d'écran. */
+  .dialog-body .form-grid{ grid-template-columns: 1fr 1fr }
+
+  .dialog-foot{
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    padding:
+      var(--sp-4)
+      var(--sp-5)
+      calc(var(--sp-4) + env(safe-area-inset-bottom));
+    background: var(--c-s1);
+    border-top: 1px solid var(--c-border-soft);
+  }
+
+  .dialog-foot .btn{
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .dialog-foot .spacer{ display: none }
+
+  /* Champs : 16 px minimum pour éviter le zoom iOS */
+  input,
+  select,
+  textarea{ font-size: var(--fs-5) }
+}

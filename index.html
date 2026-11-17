@@ -9,29 +9,60 @@
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/layout.css">
+<link rel="stylesheet" href="styles/components.css">
+<link rel="stylesheet" href="styles/planning.css">
+<link rel="stylesheet" href="styles/mobile.css">
+<link rel="stylesheet" href="styles/screens.css">
+<link rel="stylesheet" href="styles/dicta.css">
+<link rel="stylesheet" href="styles/utilities.css">
 </head>
 <body>
 
 <header class="topbar">
+  <h1 class="sr-only">Créno</h1>
   <div class="brand">
-    <div class="brand-logo">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-    </div>
+    <span class="brand-logo" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+      </svg>
+    </span>
     <span>Créno</span>
   </div>
 
-  <nav class="main-nav" id="mainNav">
-    <button type="button" class="nav-link active" data-view="planning" data-emoji="🗓️">Planning</button>
-    <button type="button" class="nav-link" data-view="absences" data-emoji="🌴">Absences</button>
-    <button type="button" class="nav-link" data-view="stats" data-emoji="📊">Statistiques</button>
-    <button type="button" class="nav-link" data-view="profile" data-emoji="👤">Mon profil</button>
+  <nav class="main-nav" id="mainNav" aria-label="Navigation principale">
+    <button type="button" class="nav-link active" data-view="planning" aria-current="page">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/>
+      </svg>
+      <span>Planning</span>
+    </button>
+    <button type="button" class="nav-link" data-view="absences">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M4 20h16"/><path d="M12 20V9"/><path d="M12 9c0-3 2-5 6-5 0 4-2 5-6 5z"/><path d="M12 12c0-2-2-4-5-4 0 3 2 4 5 4z"/>
+      </svg>
+      <span>Absences</span>
+    </button>
+    <button type="button" class="nav-link" data-view="stats">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>
+      </svg>
+      <span>Statistiques</span>
+    </button>
+    <button type="button" class="nav-link" data-view="profile">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>
+      </svg>
+      <span>Mon profil</span>
+    </button>
   </nav>
 
   <div class="topbar-right">
     <span class="save-state" id="saveState" title="Vos données sont sauvegardées dans ce navigateur">Sauvegarde locale</span>
     <div class="avatar-wrap">
-      <button type="button" class="avatar" id="avatarBtn" title="Menu">?</button>
+      <button type="button" class="avatar" id="avatarBtn" aria-label="Menu du compte" aria-haspopup="true" aria-expanded="false" title="Menu">?</button>
       <div class="dropdown hidden" id="avatarMenu">
         <div class="dropdown-head">
           <div class="avatar" id="menuAvatar">?</div>
@@ -40,13 +71,50 @@
             <div class="dd-mail" id="menuEmail">—</div>
           </div>
         </div>
-        <button type="button" data-action="goto-profile">👤 Profil &amp; disponibilités</button>
-        <button type="button" data-action="goto-establishments">🏢 Établissements</button>
-        <button type="button" data-action="goto-absences">🌴 Absences</button>
-        <button type="button" data-action="export">⬇️ Exporter (JSON)</button>
-        <button type="button" data-action="import-ics">📅 Importer depuis Skello (ICS)</button>
-        <button type="button" data-action="import">⬆️ Importer (JSON)</button>
-        <button type="button" data-action="reset" class="danger">🗑️ Réinitialiser…</button>
+        <button type="button" data-action="goto-profile">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>
+          </svg>
+          <span>Profil &amp; disponibilités</span>
+        </button>
+        <button type="button" data-action="goto-establishments">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M4 21V6l8-3 8 3v15"/><path d="M9 21v-5h6v5"/><path d="M8 9h1M15 9h1M8 12h1M15 12h1"/>
+          </svg>
+          <span>Établissements</span>
+        </button>
+        <button type="button" data-action="goto-absences">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M4 20h16"/><path d="M12 20V9"/><path d="M12 9c0-3 2-5 6-5 0 4-2 5-6 5z"/><path d="M12 12c0-2-2-4-5-4 0 3 2 4 5 4z"/>
+          </svg>
+          <span>Absences</span>
+        </button>
+        <div class="c-sep" role="separator"></div>
+        <button type="button" data-action="export">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 21h16"/>
+          </svg>
+          <span>Exporter (JSON)</span>
+        </button>
+        <button type="button" data-action="import-ics">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/><path d="M12 14v4M10 16h4"/>
+          </svg>
+          <span>Importer depuis Skello (ICS)</span>
+        </button>
+        <button type="button" data-action="import">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M12 17V5"/><path d="M7 9l5-5 5 5"/><path d="M4 21h16"/>
+          </svg>
+          <span>Importer (JSON)</span>
+        </button>
+        <div class="c-sep" role="separator"></div>
+        <button type="button" data-action="reset" class="danger">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 14h10l1-14"/><path d="M10 11v6M14 11v6"/>
+          </svg>
+          <span>Réinitialiser…</span>
+        </button>
       </div>
     </div>
   </div>
@@ -55,34 +123,48 @@
 <main id="app">
 
   <!-- ================= PLANNING ================= -->
-  <section class="view" id="view-planning">
+  <section class="view" id="view-planning" aria-label="Planning">
     <div class="weekbar">
       <div class="weekbar-left">
-        <button type="button" class="icon-btn" id="prevWeek" title="Semaine précédente (←)">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+        <button type="button" class="icon-btn" id="prevWeek" aria-label="Semaine précédente" title="Semaine précédente (←)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
         </button>
         <div class="week-pill" id="weekLabel">…</div>
-        <button type="button" class="icon-btn" id="nextWeek" title="Semaine suivante (→)">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+        <button type="button" class="icon-btn" id="nextWeek" aria-label="Semaine suivante" title="Semaine suivante (→)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M9 6l6 6-6 6"/>
+          </svg>
         </button>
         <span class="week-num" id="weekNum">Semaine —</span>
         <button type="button" class="btn ghost" id="todayBtn">Aujourd'hui</button>
-        <input type="date" id="jumpDate" class="date-jump" title="Aller à la semaine contenant cette date">
-        <button type="button" class="btn ghost md-week-toggle" id="mdWeekBtn" title="Afficher toute la semaine">📅 Semaine</button>
+        <input type="date" id="jumpDate" class="date-jump" aria-label="Aller à la semaine contenant cette date" title="Aller à la semaine contenant cette date">
+        <button type="button" class="btn ghost md-week-toggle" id="mdWeekBtn" title="Afficher toute la semaine">Semaine</button>
       </div>
       <div class="weekbar-right">
-        <button type="button" class="btn ghost hidden" id="syncIcsBtn" title="Récupérer automatiquement le planning publié sur Skello">⟳ Sync Skello</button>
-        <button type="button" class="btn primary" id="addShiftBtn">＋ Ajouter un shift</button>
+        <button type="button" class="btn ghost hidden" id="syncIcsBtn" title="Récupérer le planning publié sur Skello">⟳ Sync Skello</button>
+        <button type="button" class="btn primary" id="addShiftBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          <span>Ajouter un shift</span>
+        </button>
       </div>
     </div>
 
     <div class="planning-layout">
-      <aside class="est-panel">
+      <aside class="est-panel" aria-label="Établissements de la semaine">
         <div class="est-panel-title">Établissements</div>
-        <div id="estList"></div>
-        <form id="estAddForm" class="est-add">
+        <div class="est-list" id="estList"></div>
+        <form id="estAddForm" class="est-add" autocomplete="off">
+          <label class="sr-only" for="estAddName">Nom du nouvel établissement</label>
           <input type="text" id="estAddName" placeholder="Nouvel établissement…" maxlength="40" required>
-          <button type="submit" class="btn ghost" title="Ajouter">＋</button>
+          <button type="submit" class="btn ghost" aria-label="Ajouter un établissement" title="Ajouter">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
         </form>
       </aside>
       <div class="grid-wrap">
@@ -90,7 +172,7 @@
       </div>
     </div>
 
-    <!-- Vue mobile jour-par-jour + barre de semaine compacte (affichée < 720px ; la grille desktop est masquée) -->
+    <!-- Vue mobile jour par jour : contenu produit par app.js, bascule 100 % CSS au seuil 720 px -->
     <div class="mobile-day" id="mobileDayView"></div>
 
     <footer class="summarybar" id="summaryBar"></footer>
@@ -100,15 +182,24 @@
   <section class="view hidden" id="view-absences">
     <div class="page-head">
       <h2>Absences</h2>
-      <button type="button" class="btn primary" id="addAbsenceBtn">＋ Demander une absence</button>
+      <button type="button" class="btn primary" id="addAbsenceBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        <span>Demander une absence</span>
+      </button>
     </div>
     <div class="empty-state" id="absenceEmpty">
-      <div class="empty-icon">🌴</div>
+      <div class="empty-icon" aria-hidden="true">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/><path d="M9 16h6"/>
+        </svg>
+      </div>
       <h3>Planifiez vos absences</h3>
       <p>Demandez, visualisez et suivez vos absences.<br>Elles s'affichent directement dans le planning.</p>
       <button type="button" class="btn primary" id="addAbsenceBtn2">Demander une absence</button>
     </div>
-    <div id="absenceList" class="hidden"></div>
+    <div class="absence-list hidden" id="absenceList"></div>
   </section>
 
   <!-- ================= STATISTIQUES ================= -->
@@ -140,18 +231,18 @@
         <div class="mini hidden" id="statPayMini"><div class="mini-bar" id="statPayBar"></div></div>
       </div>
     </div>
-    <div class="panel">
+    <section class="panel">
       <h3>Heures par semaine <span class="muted small">(8 dernières semaines)</span></h3>
       <div class="bars" id="barsWeeks"></div>
-    </div>
-    <div class="panel">
+    </section>
+    <section class="panel">
       <h3>Répartition par établissement <span class="muted small">(30 derniers jours)</span></h3>
       <div id="hbarsEst"></div>
-    </div>
-    <div class="panel">
+    </section>
+    <section class="panel">
       <h3>Top des postes <span class="muted small">(30 derniers jours)</span></h3>
       <div id="hbarsLabels"></div>
-    </div>
+    </section>
   </section>
 
   <!-- ================= PROFIL ================= -->
@@ -160,7 +251,7 @@
     <div class="profile-layout">
       <div class="form-card">
         <div class="profile-head">
-          <div class="avatar avatar-xl" id="profileAvatar">?</div>
+          <div class="avatar avatar-xl" id="profileAvatar" aria-hidden="true">?</div>
           <div>
             <div class="profile-name" id="profileName">Votre profil</div>
             <div class="muted" id="profileSub">Renseignez vos informations pour personnaliser l'app</div>
@@ -168,10 +259,10 @@
         </div>
 
         <div class="form-grid">
-          <label class="field"><span>Prénom</span><input type="text" id="pFirst" placeholder="Prénom"></label>
-          <label class="field"><span>Nom</span><input type="text" id="pLast" placeholder="Nom"></label>
-          <label class="field"><span>E-mail</span><input type="email" id="pEmail" placeholder="vous@exemple.fr"></label>
-          <label class="field"><span>Téléphone</span><input type="tel" id="pPhone" placeholder="+33 6 12 34 56 78"></label>
+          <label class="field"><span>Prénom</span><input type="text" id="pFirst" placeholder="Prénom" autocomplete="given-name"></label>
+          <label class="field"><span>Nom</span><input type="text" id="pLast" placeholder="Nom" autocomplete="family-name"></label>
+          <label class="field"><span>E-mail</span><input type="email" id="pEmail" placeholder="vous@exemple.fr" autocomplete="email"></label>
+          <label class="field"><span>Téléphone</span><input type="tel" id="pPhone" placeholder="+33 6 12 34 56 78" autocomplete="tel"></label>
           <label class="field"><span>Taux horaire (€/h)</span><input type="text" inputmode="decimal" id="pRate" placeholder="12,50"></label>
           <label class="field"><span>Objectif hebdomadaire (h)</span><input type="text" inputmode="decimal" id="pObjective" placeholder="35"></label>
           <label class="field"><span>Salaire mensuel de référence (€)</span><input type="text" inputmode="decimal" id="pRefSalary" placeholder="1500"></label>
@@ -179,12 +270,14 @@
 
         <div class="field-block">
           <div class="field-label">Disponibilités habituelles</div>
-          <div class="chips" id="availChips"></div>
-          <div class="muted small" style="margin-top:8px">Un avertissement s'affiche si vous planifiez un shift un jour habituellement indisponible.</div>
+          <div class="chips" id="availChips" role="group" aria-label="Disponibilités habituelles"></div>
+          <p class="field-help">Un avertissement s'affiche si vous planifiez un shift un jour habituellement indisponible.</p>
         </div>
 
-        <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap">
+        <div class="row">
           <button type="button" class="btn primary" id="profileSave">Enregistrer</button>
+        </div>
+        <div class="row">
           <button type="button" class="btn danger" id="resetBtn">Réinitialiser les données</button>
         </div>
       </div>
@@ -198,23 +291,27 @@
       <span class="muted small">Les lieux où vous travaillez</span>
     </div>
     <div class="form-card">
-      <form id="estViewAddForm" class="row" autocomplete="off" style="margin-bottom:6px">
+      <form id="estViewAddForm" class="row" autocomplete="off">
+        <label class="sr-only" for="estViewName">Nom du nouvel établissement</label>
         <input type="text" id="estViewName" placeholder="Nom du nouvel établissement…" maxlength="40" required>
-        <button type="submit" class="btn primary">＋ Ajouter</button>
+        <button type="submit" class="btn primary">Ajouter</button>
       </form>
       <div id="estViewList"></div>
-      <p class="muted small" style="margin:12px 0 0">💡 Touchez un établissement pour le renommer, changer sa couleur ou le supprimer. Ils apparaissent automatiquement dans le planning.</p>
+      <p class="field-help">Touchez un établissement pour le renommer, changer sa couleur ou le supprimer. Ils apparaissent automatiquement dans le planning.</p>
     </div>
   </section>
 
 </main>
 
-<!-- ================= DIALOGS ================= -->
-<dialog id="shiftModal">
+<!-- ================= DIALOGUES ================= -->
+<dialog id="shiftModal" aria-labelledby="shTitle">
   <form id="shForm" autocomplete="off">
-    <div class="dialog-head"><h3 id="shTitle">Nouveau shift</h3><span class="dur-preview" id="shDur"></span></div>
+    <div class="dialog-head">
+      <h3 id="shTitle">Nouveau shift</h3>
+      <span class="dur-preview" id="shDur"></span>
+    </div>
     <div class="dialog-body">
-      <div id="shWarn" class="warn-line hidden"></div>
+      <div class="warn-line hidden" id="shWarn" role="status"></div>
       <label class="field"><span>Établissement</span><select id="shEst"></select></label>
       <div class="form-grid">
         <label class="field"><span>Date</span><input type="date" id="shDate" required></label>
@@ -243,9 +340,11 @@
   </form>
 </dialog>
 
-<dialog id="absenceModal">
+<dialog id="absenceModal" aria-labelledby="abTitle">
   <form id="abForm" autocomplete="off">
-    <div class="dialog-head"><h3 id="abTitle">Demander une absence</h3></div>
+    <div class="dialog-head">
+      <h3 id="abTitle">Demander une absence</h3>
+    </div>
     <div class="dialog-body">
       <label class="field"><span>Type</span><select id="abType"></select></label>
       <div class="form-grid">
@@ -263,9 +362,11 @@
   </form>
 </dialog>
 
-<dialog id="estModal">
+<dialog id="estModal" aria-labelledby="estTitle">
   <form id="estForm" autocomplete="off">
-    <div class="dialog-head"><h3>Modifier l'établissement</h3></div>
+    <div class="dialog-head">
+      <h3 id="estTitle">Modifier l'établissement</h3>
+    </div>
     <div class="dialog-body">
       <label class="field"><span>Nom</span><input type="text" id="estName" maxlength="40" required></label>
       <div class="field-block">
@@ -282,52 +383,70 @@
   </form>
 </dialog>
 
-<dialog id="icsModal">
-  <div class="dialog-head"><h3>📅 Importer depuis Skello</h3><button type="button" class="icon-btn" id="icsCancel" title="Fermer">✕</button></div>
+<dialog id="icsModal" aria-labelledby="icsTitle">
+  <div class="dialog-head">
+    <h3 id="icsTitle">Importer depuis Skello</h3>
+    <button type="button" class="icon-btn" id="icsCancel" aria-label="Fermer" title="Fermer">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M6 6l12 12M18 6L6 18"/>
+      </svg>
+    </button>
+  </div>
   <div class="dialog-body">
     <div class="help-line">
       Dans Skello : <b>Mon profil → Synchroniser le calendrier</b>, copiez l'URL affichée.<br>
       Vos créneaux deviennent des <b>shifts</b> et vos journées de congés des <b>absences</b>. Les doublons sont ignorés.
     </div>
-    <div class="help-line ext hidden" id="extSyncNote">🔐 <b>Extension Firefox</b> : la récupération directe depuis Skello est autorisée (permission accordée à l'installation). Tant qu'elle fonctionne, aucun relais n'est sollicité. Si elle échoue : un relais privé configuré est utilisé seul ; sans relais privé, les relais publics ne le sont que si vous les autorisez ci-dessous — votre URL et son jeton transitent alors par un serveur tiers.</div>
-    <label class="field"><span>URL du calendrier Skello (copiée depuis « Synchroniser le calendrier »)</span>
+    <div class="help-line ext hidden" id="extSyncNote"><b>Extension Firefox</b> : la récupération directe depuis Skello est autorisée (permission accordée à l'installation). Tant qu'elle fonctionne, aucun relais n'est sollicité. Si elle échoue : un relais privé configuré est utilisé seul ; sans relais privé, les relais publics ne le sont que si vous les autorisez ci-dessous — votre URL et son jeton transitent alors par un serveur tiers.</div>
+    <div class="field">
+      <label class="field-label" for="icsUrl">URL du calendrier Skello (copiée depuis « Synchroniser le calendrier »)</label>
       <div class="row">
         <input type="url" id="icsUrl" placeholder="https://api.skello.io/users/…/feeds/ics/…">
         <button type="button" class="btn primary" id="icsSaveUrlBtn">Enregistrer</button>
       </div>
-    </label>
+    </div>
     <div class="sync-meta">
-      <span class="muted small" id="icsLastSync">Jamais synchronisé</span>
-      <button type="button" class="btn ghost" id="icsSyncNowBtn">⟳ Synchroniser maintenant</button>
+      <span class="c-pill" id="icsLastSync" role="status" aria-live="polite" data-state="idle">Jamais synchronisé</span>
+      <button type="button" class="btn ghost" id="icsSyncNowBtn">Synchroniser maintenant</button>
     </div>
     <label class="field"><span>Relais privé (optionnel)</span>
       <input type="url" id="icsRelayUrl" inputmode="url" autocomplete="url" placeholder="https://relais.exemple.fr ou http://localhost:8080" aria-describedby="icsRelayHelp icsRelayError">
+      <span class="field-help" id="icsRelayHelp">Votre propre serveur : dès qu'il est configuré, seuls l'accès direct et ce relais sont utilisés — aucun relais public, même si la case ci-dessous est cochée. Il ne voit que l'URL du calendrier. Indiquez l'URL de base seule, sans /ics (l'app l'ajoute) : un /ics collé par erreur est retiré automatiquement. https:// obligatoire ; http:// accepté uniquement pour localhost (relais local sans TLS). Laissez vide pour utiliser les relais publics, si vous les autorisez, en cas de blocage CORS.</span>
+      <span class="field-error hidden" id="icsRelayError" role="status"></span>
     </label>
-    <div class="help-line small" id="icsRelayHelp">Votre propre serveur : dès qu'il est configuré, seuls l'accès direct et ce relais sont utilisés — aucun relais public, même si la case ci-dessous est cochée. Il ne voit que l'URL du calendrier. Indiquez l'URL de base seule, sans /ics (l'app l'ajoute) : un /ics collé par erreur est retiré automatiquement. https:// obligatoire ; http:// accepté uniquement pour localhost (relais local sans TLS). Laissez vide pour utiliser les relais publics, si vous les autorisez, en cas de blocage CORS.</div>
-    <div class="warn-line hidden" id="icsRelayError" role="status"></div>
     <div class="help-line small hidden" id="icsRelayNotice" role="status"></div>
     <label class="check">
       <input type="checkbox" id="icsAllowProxy" checked>
-      <span>Si Skello bloque la demande directe (CORS) <b>et qu'aucun relais privé n'est configuré</b>, passer par un relais public. <span class="muted small">⚠️ Votre URL contient un jeton privé : via un relais public, elle transite par un serveur tiers. Méthodes 100 % privées : un relais privé, ou le fichier .ics téléchargé.</span></span>
+      <span>Si Skello bloque la demande directe (CORS) <b>et qu'aucun relais privé n'est configuré</b>, passer par un relais public. <span class="muted small">Votre URL contient un jeton privé : via un relais public, elle transite par un serveur tiers. Méthodes 100 % privées : un relais privé, ou le fichier .ics téléchargé.</span></span>
     </label>
     <div class="sep-line">ou manuellement</div>
-    <label class="field"><span>Depuis un fichier .ics <span class="muted small">(méthode fiable : ouvrez l'URL dans le navigateur, il télécharge le fichier)</span></span>
-      <button type="button" class="btn ghost" id="icsFileBtn">📄 Choisir un fichier .ics…</button>
-    </label>
+    <div class="field">
+      <span class="field-label">Depuis un fichier .ics <span class="muted small">(méthode fiable : ouvrez l'URL dans le navigateur, il télécharge le fichier)</span></span>
+      <button type="button" class="btn ghost" id="icsFileBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>
+        </svg>
+        <span>Choisir un fichier .ics…</span>
+      </button>
+    </div>
     <label class="field"><span>Coller le contenu du calendrier</span>
       <textarea id="icsPaste" rows="4" placeholder="BEGIN:VCALENDAR …"></textarea>
     </label>
-    <div style="text-align:right;margin-bottom:14px">
+    <div class="row">
       <button type="button" class="btn primary" id="icsParseBtn">Analyser et importer</button>
     </div>
-    <p class="muted small" style="margin:0">💡 Vous pouvez aussi glisser-déposer un fichier .ics directement dans la fenêtre.</p>
+    <p class="field-help">Vous pouvez aussi glisser-déposer un fichier .ics directement dans la fenêtre.</p>
   </div>
 </dialog>
 <input type="file" id="icsFile" accept=".ics,text/calendar" hidden>
 
-<dialog id="confirmModal">
-  <div class="dialog-head"><h3 id="cfTitle"></h3></div>
-  <div class="dialog-body"><p class="muted" id="cfMsg" style="margin:0"></p></div>
+<dialog id="confirmModal" aria-labelledby="cfTitle">
+  <div class="dialog-head">
+    <h3 id="cfTitle">Confirmation</h3>
+  </div>
+  <div class="dialog-body">
+    <p class="muted" id="cfMsg"></p>
+  </div>
   <div class="dialog-foot">
     <span class="spacer"></span>
     <button type="button" class="btn ghost" id="cfCancel">Annuler</button>
@@ -337,7 +456,9 @@
 
 <!-- ================= DICTAPHONE ================= -->
 <button type="button" id="dictaBtn" aria-label="Dicter (Ctrl/Cmd+Maj+M)" aria-pressed="false" title="Dicter (Ctrl/Cmd+Maj+M)" hidden>
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    <rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>
+  </svg>
 </button>
 <!-- Pastille purement visuelle ; les annonces lecteur d'écran passent par #dictaLive. -->
 <div id="dictaPill" aria-hidden="true" hidden>
@@ -347,9 +468,16 @@
 <div id="dictaLive" role="status" aria-live="polite" class="sr-only"></div>
 
 <div id="toasts"></div>
-<div id="dropOverlay" class="drop-overlay hidden"><div class="box">📥 Déposez votre fichier JSON ou ICS pour l'importer</div></div>
+<div id="dropOverlay" class="drop-overlay hidden">
+  <div class="box">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+      <path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/>
+    </svg>
+    Déposez votre fichier JSON ou ICS pour l'importer
+  </div>
+</div>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
 
-<script src="app.js"></script>
+<script src="app.js" defer></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 # Créno — extension Firefox
 
-**Manifest V2**, version 1.1.1 (Firefox 115+) : ouvrir l'app Créno dans un
+**Manifest V2**, version 1.1.1 (Firefox 121+, `strict_min_version: "121.0"` pour `:has()`) : ouvrir l'app Créno dans un
 onglet, avec un périmètre réseau minimal — l'app elle-même, plus
 `https://api.skello.io/*` pour la sync ICS directe.
 
@@ -62,16 +62,21 @@ bash tools/build-extension.sh --clean    # supprime les artefacts générés
 ```
 
 Prérequis : `bash`, `python3`, `zip`, `unzip`, `sha256sum`. Le script recopie
-`index.html`, `app.js`, `styles.css` et les icônes depuis la racine, retire le
-lien `manifest.webmanifest` et le bloc service worker, puis écrit un zip
+`index.html`, `app.js`, les 9 feuilles `styles/*.css` et les icônes depuis la racine, retire
+le lien `manifest.webmanifest` et le bloc service worker, puis écrit un zip
 déterministe (`-X`, entrées triées, mtime 1980-01-01) + son sha256, cap 250 Kio.
+Le paquet contient **15 fichiers** : `manifest.json`, `background.js`, `index.html`,
+`app.js`, les 9 CSS sous `styles/` (`tokens`, `base`, `layout`, `components`,
+`planning`, `mobile`, `screens`, `dicta`, `utilities`) et `icons/icon-192.png` +
+`icons/icon-512.png`. Les feuilles embarquées sont exactement celles liées par
+`index.html`, dans le même ordre.
 `--check` vérifie le zip **existant** : le lancer après un build (sur un
 checkout neuf, `dist/` n'existe pas).
 
 **Sortie** : `dist/creno-extension.zip`. Ignorés par git (générés) :
-`extension/{index.html,app.js,styles.css,icons/}`, `dist/`. Committés :
-`extension/{manifest.json,background.js}`, ce README et `tools/` (build + 26
-assertions via `bash tools/tests/test-build-extension.sh`).
+`extension/{index.html,app.js,styles/*.css,icons/}`, `dist/`. Committés :
+`extension/{manifest.json,background.js}`, ce README et `tools/` (build + 22
+assertions en 10 sections via `bash tools/tests/test-build-extension.sh`).
 
 ## Tester dans Firefox
 

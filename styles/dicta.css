@@ -1,0 +1,111 @@
+/* ============================================================
+   Créno — dicta.css   ⚠️ ZONE GELÉE — NE PAS REDESSINER
+   ============================================================
+   Contrat CSS ↔ JS (app.js) : toute modification ici casse la dictée.
+
+   1. RE-PARENTAGE : quand un <dialog> s'ouvre, app.js DÉPLACE les deux
+      nœuds #dictaBtn et #dictaPill à la FIN de son `.dialog-body`
+      (dictaMount, app.js:1932-1934 : bouton PUIS pastille). Ils quittent
+      donc le <body> et perdent tout contexte de mise en page propre.
+   2. HÔTE : `.dialog-body` doit rester en flux vertical. La règle
+      `.dialog-body:has(> #dictaBtn)` le force en `display:flex;
+      flex-direction:column` ; la pastille est ramenée en tête
+      (`order:-1`) et le bouton en dernier (`order:99`), quel que soit
+      l'ordre du DOM.
+      NE PAS passer `.dialog-body` en `grid` sans `order`, ni lui donner
+      `overflow:hidden` : le `position:sticky` du bouton serait cassé.
+   3. HIDDEN : `#dictaBtn[hidden]` / `#dictaPill[hidden]` valent
+      `display:none !important` — app.js teste `getComputedStyle().display
+      === 'none'` (dictaIsUsable). Masquer autrement (visibility, opacity)
+      laisserait le bouton focusable et dicter-able.
+   4. OFFSETS : hors dialogue, les deux contrôles sont `position:fixed`
+      et calés sur la nav basse mobile. Les valeurs dérivent de `--nav-h`
+      (tokens.css) ; toute nouvelle hauteur de nav doit être reportée ici
+      ET dans les offsets de `#toasts` ci-dessous.
+   5. Les couleurs dynamiques passent par var(--c) côté composants ;
+      ici tout est tokenisé (--c-*, --sh-*), aucun hex.
+
+   Source : styles.css d'origine, lignes 562-642 (contenu verbatim,
+   noms de tokens legacy uniquement traduits).
+   ============================================================ */
+
+#dictaBtn[hidden],#dictaPill[hidden]{ display:none !important }
+
+#dictaBtn{
+  /* au-dessus du contenu, de la nav mobile et de #dropOverlay (z-index 200), sous les toasts (300) */
+  position:fixed; z-index:210; right:var(--sp-8);
+  bottom:calc(var(--sp-8) + env(safe-area-inset-bottom));
+  width:48px; height:48px; min-width:48px; min-height:48px; border-radius:50%;
+  display:grid; place-items:center;
+  background:linear-gradient(135deg,var(--c-accent),var(--c-accent-strong));
+  color:var(--c-on-accent); border:1px solid color-mix(in oklab, var(--c-accent) 50%, transparent);
+  box-shadow:var(--sh-pop),0 6px 18px color-mix(in oklab, var(--c-accent) 28%, transparent);
+  touch-action:manipulation;
+  transition:transform .15s,box-shadow .15s,filter .15s,background .15s;
+}
+#dictaBtn:hover{ filter:brightness(1.08); transform:translateY(-1px) }
+#dictaBtn:active{ transform:scale(.94) }
+#dictaBtn:focus-visible{ outline:2px solid var(--c-accent); outline-offset:3px; box-shadow:var(--sh-pop) }
+#dictaBtn svg{ width:20px; height:20px; display:block }
+#dictaBtn.is-listening{ background:var(--c-danger); color:var(--c-on-danger); border-color:color-mix(in oklab, var(--c-danger) 60%, transparent) }
+#dictaBtn.is-listening::after{
+  content:''; position:absolute; inset:-5px; border-radius:50%;
+  border:2px solid var(--c-danger); opacity:0; pointer-events:none;
+  animation:dictaPulse 1.8s ease-out infinite;
+}
+@keyframes dictaPulse{
+  0%{ transform:scale(.92); opacity:.7 }
+  70%{ opacity:0 }
+  100%{ transform:scale(1.22); opacity:0 }
+}
+@media (prefers-reduced-motion: reduce){
+  #dictaBtn.is-listening::after{ animation:none }
+}
+
+#dictaPill{
+  /* même plan que #dictaBtn (210) : la pastille et le bouton restent
+     visibles ensemble au-dessus de #dropOverlay (200). */
+  position:fixed; z-index:210; right:var(--sp-8);
+  bottom:calc(var(--sp-8) + 48px + var(--sp-5) + env(safe-area-inset-bottom));
+  display:flex; align-items:center; gap:var(--sp-4);
+  max-width:min(340px,calc(100vw - 48px));
+  padding:var(--sp-4) 13px; border-radius:999px;
+  background:var(--c-s3); border:1px solid var(--c-border);
+  box-shadow:var(--sh-pop);
+  font-size:12.5px; font-weight:700; line-height:1.35;
+  overflow-wrap:anywhere;
+}
+#dictaPill.is-error{ border-color:color-mix(in oklab, var(--c-danger) 40%, transparent); color:var(--c-danger) }
+.dicta-pill-dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; background:var(--c-accent); box-shadow:0 0 8px color-mix(in oklab, var(--c-accent) 75%, transparent) }
+#dictaPill.is-error .dicta-pill-dot{ background:var(--c-danger); box-shadow:0 0 8px color-mix(in oklab, var(--c-danger) 75%, transparent) }
+
+/* --- Contrôles re-parentés par app.js dans un dialogue ouvert (top layer) ---
+   app.js les ajoute en DERNIERS enfants du .dialog-body. On rétablit donc l'ordre
+   (pastille au-dessus du formulaire) et on les remet dans le flux : la position
+   fixed était rognée par l'overflow:auto du <dialog> et décalée par le transform
+   de sheetUp. Le bouton reste collé au bas de la zone visible du dialogue. */
+.dialog-body:has(> #dictaBtn){ display:flex; flex-direction:column }
+.dialog-body:has(> #dictaBtn) > #dictaPill{
+  position:static; order:-1; align-self:flex-start;
+  margin:0 0 14px; max-width:100%;
+}
+.dialog-body:has(> #dictaBtn) > #dictaBtn{
+  position:sticky; order:99; right:auto;
+  bottom:calc(12px + env(safe-area-inset-bottom));
+  align-self:flex-end; flex:0 0 48px; margin-top:12px; z-index:2;
+}
+/* Le défilement déclenché par le focus (champ dicté) laisse la place au bouton collé. */
+dialog:has(.dialog-body > #dictaBtn){ scroll-padding-bottom:76px }
+
+/* Les toasts occupent déjà le coin bas-droit : on les décale pour libérer le bouton. */
+@media (min-width: 720px){
+  #toasts{ right:84px }
+}
+
+@media (max-width: 719px){
+  /* Au-dessus de la navigation fixe : même calcul que #toasts, côté droit
+     (--nav-h = 66 px ; 6 px de marge + 48 px de bouton + 12 px de gap). */
+  #dictaBtn{ right:14px; bottom:calc(var(--nav-h) + var(--sp-3) + env(safe-area-inset-bottom)) }
+  #dictaPill{ right:14px; bottom:calc(var(--nav-h) + 66px + env(safe-area-inset-bottom)); max-width:calc(100vw - 28px) }
+  #toasts{ right:calc(var(--nav-h) + var(--sp-4)) }
+}

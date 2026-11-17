@@ -1,0 +1,439 @@
+/* ============================================================
+   Créno — layout.css
+   Coquille et structure : barre du haut, navigation, vues,
+   barre de semaine, rail + grille, résumé collant, toasts.
+   Chargé APRÈS base.css et AVANT components.css.
+
+   Contenu : uniquement des boîtes, des grilles et des gouttières.
+   Aucun rendu d'atome (.btn, .field, .panel…) : c'est components.css.
+   Aucune couleur littérale : uniquement var(--…) de tokens.css.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. Barre du haut
+   Sticky en desktop ; statique en mobile (la nav est en bas).
+   Fond opaque : pas de backdrop-filter (décision performance,
+   et un containing block casserait la nav fixed du bas).
+   ------------------------------------------------------------ */
+.topbar{
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  min-height: var(--topbar-h);
+  padding: var(--sp-2) var(--sp-6);
+  padding-inline:
+    max(var(--sp-6), env(safe-area-inset-left))
+    max(var(--sp-6), env(safe-area-inset-right));
+  background: var(--c-bg);
+  border-bottom: 1px solid var(--c-border-soft);
+}
+
+.brand{
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex: none;
+  font-size: var(--fs-6);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  letter-spacing: -.01em;
+  color: var(--c-text);
+}
+
+/* Aplat accent, plus de dégradé ni de halo : le logo n'est pas
+   une couche flottante (DESIGN §2.4). */
+.brand-logo{
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+
+/* ------------------------------------------------------------
+   2. Navigation principale — horizontale dès 720
+   ------------------------------------------------------------ */
+.main-nav{
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.nav-link{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: var(--hit);
+  padding: var(--sp-2) var(--sp-5);
+  border-radius: var(--r-md);
+  color: var(--c-text-2);
+  font-size: var(--fs-4);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-snug);
+  white-space: nowrap;
+  transition:
+    color var(--dur-1) var(--ease),
+    background-color var(--dur-1) var(--ease);
+}
+.nav-link:hover{
+  color: var(--c-text);
+  background: var(--c-s2);
+}
+/* État actif : surface + filet bas accent (l'info ne repose pas
+   sur la couleur seule : aria-current="page" est posé par app.js). */
+.nav-link.active{
+  color: var(--c-text);
+  background: var(--c-s3);
+  box-shadow: inset 0 -2px 0 var(--c-accent);
+}
+
+.topbar-right{
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  flex: none;
+}
+
+/* Indicateur de sauvegarde locale */
+.save-state{
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-2);
+  color: var(--c-text-3);
+  white-space: nowrap;
+  transition: color var(--dur-2) var(--ease);
+}
+.save-state::before{
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--c-accent);
+  opacity: .45;
+  transition: opacity var(--dur-2) var(--ease);
+}
+.save-state.flash{ color: var(--c-accent) }
+.save-state.flash::before{ opacity: 1 }
+
+/* ------------------------------------------------------------
+   3. Menu avatar — positionnement
+   Le rendu de la carte et des items est dans components.css.
+   ------------------------------------------------------------ */
+.dropdown{
+  position: absolute;
+  inset-block-start: calc(100% + var(--sp-3));
+  inset-inline-end: 0;
+  z-index: 60;
+  width: 280px;
+  max-width: calc(100vw - var(--sp-8));
+}
+
+/* ------------------------------------------------------------
+   4. Conteneur d'écran
+   Marges latérales : sp-5 · sp-6 (720) · sp-8 (1024) · sp-9 (1440).
+   ------------------------------------------------------------ */
+.view{
+  --view-pad: var(--sp-5);
+  width: 100%;
+  max-width: var(--page-max);
+  margin-inline: auto;
+  padding-block: var(--sp-5) var(--sp-9);
+  padding-inline:
+    max(var(--view-pad), env(safe-area-inset-left))
+    max(var(--view-pad), env(safe-area-inset-right));
+}
+
+.page-head{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4) var(--sp-6);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-7);
+}
+.page-head .muted{ max-width: 56ch }
+
+/* ------------------------------------------------------------
+   5. Barre de semaine
+   Propriétaire : planning.css (§1) — seule la structure des deux
+   groupes est posée ici, le reste appartient à l'écran planning.
+   ------------------------------------------------------------ */
+.weekbar-left,
+.weekbar-right{
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.weekbar-right{ margin-left: auto }
+
+/* Bascule Jour/Semaine : visible uniquement en mobile.
+   Le texte est réécrit par app.js -> aucun enfant, icône CSS. */
+.md-week-toggle{ display: none }
+
+/* ------------------------------------------------------------
+   6. Planning : rail + grille
+   ------------------------------------------------------------ */
+.planning-layout{
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  align-items: stretch;
+}
+
+.est-panel{
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  background: var(--c-s1);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  min-width: 0;
+}
+
+.est-panel-title{
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semi);
+  letter-spacing: var(--tr-eyebrow);
+  text-transform: uppercase;
+  color: var(--c-text-3);
+}
+
+.grid-wrap{
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Hauteur bornée par la fenêtre pour que la tête de jour sticky
+     colle au haut du cadre (pas de calc(100vh - 235px) : tokens). */
+  max-height: calc(100dvh - var(--topbar-h) - var(--sp-11) * 2 - var(--sp-9));
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  background: var(--c-s1);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  isolation: isolate;
+  container-type: inline-size;
+}
+
+/* ------------------------------------------------------------
+   7. Résumé de semaine
+   Le conteneur (.summarybar) appartient à planning.css (§7) : ici
+   seulement la colonne de vue qui permet son ancrage en bas.
+   ------------------------------------------------------------ */
+
+/* La vue planning est une colonne qui prend la fenêtre : le résumé
+   est poussé en bas (margin-top:auto) au lieu de laisser ~450 px de
+   vide sous lui sur grand écran. */
+#view-planning{
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--topbar-h));
+}
+
+/* ------------------------------------------------------------
+   8. Toasts (conteneur)
+   Décalé à droite pour ne pas recouvrir #dictaBtn (44 px + 24 px).
+   ------------------------------------------------------------ */
+#toasts{
+  position: fixed;
+  z-index: 300;
+  right: 84px;
+  bottom: var(--sp-7);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--sp-3);
+  max-width: min(380px, calc(100vw - var(--sp-8)));
+}
+
+/* ------------------------------------------------------------
+   9. Tablette 720 → 1023 : rail en bandeau, grille scrollable
+   ------------------------------------------------------------ */
+@media (min-width: 720px){
+  .view{
+    --view-pad: var(--sp-6);
+    padding-block: var(--sp-6) var(--sp-10);
+  }
+  .weekbar{ margin-bottom: var(--sp-5) }
+}
+
+/* 720 → 1023 : rail en bandeau horizontal, barre de semaine sur
+   deux lignes (navigation / actions). Au-delà, le rail repasse en
+   colonne (DESIGN §5.2 / §5.1). */
+@media (min-width: 720px) and (max-width: 1023px){
+  .weekbar-right{
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  /* Le rail devient une bande horizontale au-dessus de la grille. */
+  .est-panel{
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .est-panel-title{
+    flex: 0 0 auto;
+    padding-inline: 0;
+  }
+  .est-list{
+    display: flex;
+    gap: var(--sp-3);
+    min-width: 0;
+  }
+  .est-list > *{ flex: 0 0 auto }
+  .est-panel .est-add{
+    flex: 0 0 auto;
+    margin-top: 0;
+    padding-top: 0;
+  }
+}
+
+/* ------------------------------------------------------------
+   10. Desktop 1024+ : rail vertical sticky, grille sans scroll X
+   ------------------------------------------------------------ */
+@media (min-width: 1024px){
+  .view{
+    --view-pad: var(--sp-8);
+    padding-block: var(--sp-7) var(--sp-10);
+  }
+
+  .planning-layout{
+    flex-direction: row;
+    align-items: flex-start;
+    gap: var(--sp-5);
+  }
+
+  .est-panel{
+    width: var(--rail-w);
+    flex: 0 0 var(--rail-w);
+    flex-direction: column;
+    align-items: stretch;
+    align-self: flex-start;
+    position: sticky;
+    top: calc(var(--topbar-h) + var(--sp-5));
+    max-height: calc(100dvh - var(--topbar-h) - var(--sp-9));
+    overflow: auto;
+  }
+  .est-list{
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+  }
+}
+
+@media (min-width: 1440px){
+  .view{
+    --view-pad: var(--sp-9);
+    padding-block: var(--sp-7) var(--sp-11);
+  }
+}
+
+/* ------------------------------------------------------------
+   11. Téléphone < 720 : nav basse fixe, vue jour seule
+   Le basculement desktop/mobile est 100 % CSS (seuil 720, contrat).
+   ------------------------------------------------------------ */
+@media (max-width: 899px){
+  .save-state{ display: none }
+}
+
+@media (max-width: 719px){
+  body{
+    padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  }
+
+  /* Le min-height desktop (100dvh − topbar) ne s'applique pas ici :
+     sur mobile la barre du haut est statique et le body réserve déjà
+     --nav-h, donc la vue déborderait de ~58 px sous la nav basse. */
+  #view-planning{ min-height: 0 }
+
+  .topbar{
+    position: static;
+    min-height: calc(var(--topbar-h) - var(--sp-4));
+    gap: var(--sp-4);
+    padding: var(--sp-2) var(--sp-5);
+    padding-inline:
+      max(var(--sp-5), env(safe-area-inset-left))
+      max(var(--sp-5), env(safe-area-inset-right));
+  }
+
+  /* Navigation en bas, façon barre d'onglets */
+  .main-nav{
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+    flex-wrap: nowrap;
+    gap: 0;
+    background: var(--c-s1);
+    border-top: 1px solid var(--c-border);
+    padding: var(--sp-2) max(var(--sp-2), env(safe-area-inset-left))
+             calc(var(--sp-2) + env(safe-area-inset-bottom))
+             max(var(--sp-2), env(safe-area-inset-right));
+  }
+  .nav-link{
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    gap: var(--sp-1);
+    padding: var(--sp-2) var(--sp-1);
+    font-size: var(--fs-1);
+    letter-spacing: 0;
+  }
+
+  .view{
+    --view-pad: var(--sp-5);
+    padding-block: var(--sp-4) var(--sp-9);
+  }
+  .page-head{
+    align-items: flex-start;
+    margin-bottom: var(--sp-5);
+  }
+
+  .weekbar{
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-4);
+  }
+  .weekbar-left{ gap: var(--sp-2) }
+  .weekbar-right{ display: none }
+  .week-pill{ min-width: 132px }
+  .date-jump{ display: none }
+  .md-week-toggle{ display: inline-flex }
+
+  /* La vue semaine desktop laisse la place à la vue jour mobile */
+  .planning-layout{ display: none }
+
+  /* Le résumé reste dans le flux : la nav basse occupe le bas. */
+  .summarybar{
+    gap: var(--sp-3);
+    margin-top: var(--sp-4);
+    padding: var(--sp-4);
+  }
+  .summarybar .progress-wrap{ flex-basis: 100% }
+
+  #toasts{
+    left: var(--sp-5);
+    right: 74px;
+    bottom: calc(var(--nav-h) + var(--sp-3) + env(safe-area-inset-bottom));
+    max-width: none;
+  }
+}

@@ -4,7 +4,7 @@
    - pré-cache du shell de l'app à l'installation ;
    - navigations : réseau d'abord (mises à jour immédiates), cache en secours ;
    - autres ressources same-origin : cache d'abord + mise à jour en arrière-plan
-     (les modifications d'app.js / styles.css sont donc prises au lancement suivant) ;
+     (les modifications d'app.js / styles/*.css sont donc prises au lancement suivant) ;
    - seules les réponses valides (2xx) sont mises en cache ;
    - requêtes externes (api.skello.io, relais public ou privé…) : jamais interceptées ;
    - réponses du relais privé (<base>/ics?url=…) : jamais mises en cache, même si le relais
@@ -13,11 +13,19 @@
    ============================================================ */
 'use strict';
 
-const CACHE = 'creno-v15';
+const CACHE = 'creno-v16';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css',
+  './styles/tokens.css',
+  './styles/base.css',
+  './styles/layout.css',
+  './styles/components.css',
+  './styles/planning.css',
+  './styles/mobile.css',
+  './styles/screens.css',
+  './styles/dicta.css',
+  './styles/utilities.css',
   './app.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
