@@ -245,7 +245,7 @@ Ajouts d'attributs (aucune logique métier) :
 |---|---|
 | 180-186 | `toast()` : `t.setAttribute('role', type === 'error' ? 'alert' : 'status')` |
 | 205 | `switchView()` : `b.setAttribute('aria-current', actif ? 'page' : 'false')`, et l'absence d'attribut sur les inactifs |
-| 248-249 | `#mdWeekBtn` : **ne pas** mettre d'emoji dans le texte (`textContent` = « Semaine » / « Jour »), l'icône passe en CSS |
+| 248-249 | `#mdWeekBtn` : texte réécrit par JS **avec l'emoji conservé** (`'🗓️ Jour'` / `'📅 Semaine'`, `app.js:263`) — aucune icône CSS `::before` en doublon |
 | 435 | `.md-empty` : rendre focusable (`<button type="button">`) |
 | 694-695 | `.chip` : `aria-pressed="${état}"` |
 | 863 | `renderSyncInfo()` : `el.dataset.state = t ? 'ok' : 'idle'` |
@@ -543,7 +543,7 @@ Propriétaire : `components.css`.
 - `::backdrop` : `rgba(4,8,14,.72)`, **sans** `backdrop-filter`.
 - `.dialog-head` : 56 px, sticky top, filet bas. `.dialog-foot` : sticky bottom, filet haut, fond `--c-s1`.
 - Mobile (< 720) : `margin: auto auto 0`, `--r-xl --r-xl 0 0`, `--sh-sheet`, `animation: sheetUp var(--dur-3) var(--ease)` (nom de keyframe conservé), `.dialog-head::before` = grabber 36 × 4 px.
-- `<h3 id>` obligatoire pour `aria-labelledby` : `shTitle`, `abTitle`, `cfTitle` existent ; **`estTitle` et `icsTitle` sont à créer**.
+- `<h3 id>` obligatoire pour `aria-labelledby` : les cinq existent — `shTitle`, `abTitle`, `estTitle`, `icsTitle`, `cfTitle` (`index.html`).
 - Le `.dialog-body` peut recevoir `#dictaBtn` en dernier enfant (voir §9).
 
 Propriétaire : `components.css` (desktop) / `mobile.css` (sheet).
@@ -569,7 +569,7 @@ Propriétaire : `components.css` (desktop) / `mobile.css` (sheet).
 
 - 280 px, `--c-s1`, `--c-border`, `--sh-pop`, `--r-lg`. Items `min-height: 44px`, hover `--c-s3`.
 - Groupes séparés par `.c-sep` (filet 1 px, `--sp-2` de marge verticale) : navigation / données / danger.
-- `.avatar` : 36 visuel, **zone de frappe 44** (`::after` inset -4px), `--c-info` → `#7c5bff`, texte `--c-on-info` (7.04:1 ; le blanc actuel est à 2.75:1).
+- `.avatar` : 36 visuel, **zone de frappe 44** (`::after` inset -4px), `--c-info` (`#5b9cff`), texte `--c-on-info` (7.04:1 ; le blanc actuel est à 2.75:1).
 - `aria-expanded` synchronisé par `app.js` (voir §3.3). Pas de `role="menu"` : sans navigation par flèches, ce serait moins conforme qu'un groupe de boutons.
 Propriétaire : `layout.css` (positionnement) / `components.css` (rendu).
 
@@ -597,7 +597,7 @@ Propriétaire : `layout.css` (positionnement) / `components.css` (rendu).
 - `.week-num` : `--c-accent-soft`, filet `--c-accent-line`, texte `--c-accent`, `--fs-1`, 600, uppercase, `--r-pill`.
 - `.date-jump` : 150 px, `--fs-2`, `--c-text-2` ; masqué < 720 px (existant).
 - **Un seul CTA primaire par écran** : `#addShiftBtn`. `#syncIcsBtn` est un ghost.
-- ⚠️ `#syncIcsBtn` et `#mdWeekBtn` voient leur `textContent` réécrit par `app.js` : **aucun élément enfant**, icône en `::before` CSS uniquement.
+- ⚠️ `#syncIcsBtn` et `#mdWeekBtn` voient leur `textContent` réécrit par `app.js` : **aucun élément enfant**. Le libellé garde son emoji (`'🗓️ Jour'` / `'📅 Semaine'`, `app.js:263` ; `'⟳ Sync Skello'` / `'⟳ Synchro…'`, `app.js:909`) : **aucune icône `::before` n'est ajoutée**, pour ne pas doubler le glyphe.
 Propriétaire : `layout.css`.
 
 ### 4.17 État vide — `.empty-state`
@@ -682,7 +682,7 @@ Propriétaire : `planning.css`.
 
 - Le rail **n'est plus un doublon** de la 1ʳᵉ colonne : il porte les **totaux** (heures, nb de shifts) + `#estAddForm` en pied.
 - Grille : `background: var(--c-bg)` (puits), cellules transparentes, **un seul cadre** au lieu de N cartes.
-- `.week-grid` : `grid-template-columns: var(--rail-w) repeat(7, minmax(100px, 1fr))` — **plus de `min-width: 1080px`**.
+- `.week-grid` : `grid-template-columns: var(--rail-w) repeat(7, minmax(0, 1fr))` — **plus de `min-width: 1080px`** ; aucune largeur plancher, donc aucun débordement horizontal.
 - `.cell` : `min-height: 96px`, `padding: var(--sp-2)`, gap `var(--sp-1)`.
 - Tête de jour : `LUN` 11/600 `--c-text-3`, numéro 20/700 tabular ; aujourd'hui = pastille `--c-info` + texte `--c-on-info`, **sans glow**.
 - `.grid-wrap` : `isolation: isolate`, `container-type: inline-size`.
@@ -735,7 +735,7 @@ La grille peut défiler horizontalement, la première colonne reste collée. On 
 | Numéro ISO | `.week-num` chip accent soft, 11/600 uppercase |
 | Aujourd'hui | `.btn.ghost`, revient à la semaine courante **et** replace la vue jour sur aujourd'hui |
 | Date | `#jumpDate` 150 px, ≥ 720 px uniquement |
-| Bascule mobile | `#mdWeekBtn` : texte seul (JS), icône en `::before` |
+| Bascule mobile | `#mdWeekBtn` : texte piloté par JS avec emoji conservé (`🗓️ Jour` / `📅 Semaine`), pas d'icône CSS |
 
 Micro-interactions : changement de semaine = glissement `--dur-3` en mobile, **aucune animation** en desktop (les libellés se mettent à jour, c'est tout).
 
@@ -836,8 +836,8 @@ La modale couleur affiche `.color-dot` (44 × 44 zone, 24 visuel) avec `aria-pre
 |---|---|---|---|
 | `#shiftModal` | `shTitle` | établissement, date, poste, début, fin, note, avertissement disponibilité | Supprimer (masqué si création) / Annuler / Enregistrer |
 | `#absenceModal` | `abTitle` | type, du, au, note | idem |
-| `#estModal` | **`estTitle` (à créer)** | nom, 8 pastilles de couleur | Supprimer / Annuler / Enregistrer |
-| `#icsModal` | **`icsTitle` (à créer)** | état de synchro, URL, relais privé, relais publics, parcours manuel | pas de pied (fermeture par ✕) |
+| `#estModal` | `estTitle` | nom, 8 pastilles de couleur | Supprimer / Annuler / Enregistrer |
+| `#icsModal` | `icsTitle` | état de synchro, URL, relais privé, relais publics, parcours manuel | pas de pied (fermeture par ✕) |
 | `#confirmModal` | `cfTitle` | message (`#cfMsg`) | Annuler / Confirmer (danger ou primaire selon le contexte) |
 
 Mobile : bottom-sheet. Le pied reste **sticky** ; les boutons prennent `flex: 1` et `.spacer` disparaît (existant `styles.css:530-531`).
@@ -975,7 +975,7 @@ Le focus ne doit jamais être masqué par `.topbar` ni par la nav basse (`scroll
 | `.toast` | `role="status"` / `role="alert"` | à ajouter (`app.js:180`) |
 | `#icsLastSync` | `role="status" aria-live="polite"` + `data-state` | à ajouter |
 | `#icsSyncNowBtn` | `aria-busy` pendant la synchro | à ajouter |
-| `dialog` | `aria-labelledby` → `h3[id]` | `estTitle` / `icsTitle` à créer |
+| `dialog` | `aria-labelledby` → `h3[id]` | les 5 titres existent (`shTitle`, `abTitle`, `estTitle`, `icsTitle`, `cfTitle`) |
 | `.icon-btn`, `.color-dot` | `aria-label` | obligatoire |
 | SVG décoratif | `aria-hidden="true"` + `focusable="false"` | obligatoire |
 | `#dictaLive` | `role="status" aria-live="polite"` | existant, ne pas toucher |
@@ -1003,7 +1003,7 @@ Pas de `role="menu"` sur `.dropdown` (aucune navigation par flèches implément�
 **Mise en page**
 
 11. **`calc(100vh - 235px)` interdit** : utiliser `100dvh` + `--topbar-h` / `--nav-h` / `env(safe-area-inset-bottom)`.
-12. **`.week-grid{min-width:1080px}` supprimé** : `var(--rail-w) repeat(7, minmax(100px, 1fr))`. Le défilement horizontal ne subsiste qu'entre 720 et 1023 px.
+12. **`.week-grid{min-width:1080px}` supprimé** : `var(--rail-w) repeat(7, minmax(0, 1fr))`. Palier 720–1023 px : `var(--rail-w) repeat(7, minmax(72px, 1fr))` (plancher 72 px, qui tient à 720 px de large avec le rail de 160 px — pas de scroll horizontal interne).
 13. **Empilement sticky** : corner 6 / head 5 / sticky-left 4, `isolation: isolate` sur `.grid-wrap`.
 14. **Pas de `backdrop-filter`** : décision performance existante (blur plein écran interdit, et `backdrop-filter` sur un ancêtre crée un containing block qui piégerait la nav `fixed` et le sheet).
 15. **`.topbar` reste `position: sticky`** ; en mobile elle est `static`/`relative` (la nav est en bas).
@@ -1066,3 +1066,21 @@ Dans `index.html`, dans cet ordre exact :
 - [ ] Contrastes AA vérifiés sur les 4 largeurs (DevTools) et sur un bloc de shift par couleur de `PALETTE`.
 - [ ] `bash tools/run-tests.sh` vert.
 - [ ] `CACHE` de `sw.js` incrémenté.
+
+---
+
+## 12. État livré (2026-11-17)
+
+État vérifié du front, à comparer au contenu de ce document en cas de doute.
+
+| Élément | Valeur livrée |
+|---|---|
+| Commit de référence | `da9480f` (+ correctifs postérieurs sur la branche) |
+| Feuilles CSS | 9, chargées par `index.html` dans l'ordre du §10 (`tokens` → `base` → `layout` → `components` → `planning` → `mobile` → `screens` → `dicta` → `utilities`) |
+| Ancien `styles.css` | supprimé (fichier et entrée `ASSETS` du service worker) |
+| Extension Firefox | 15 fichiers dans le zip (4 fichiers d'app, 9 CSS, 2 icônes), 97 696 octets pour un budget de 256 000 |
+| Service worker | `CACHE` = `creno-v16` |
+| Tests | 4 suites câblées dans `bash tools/run-tests.sh` (syntaxe, `relay-sync`, `ui-contract`, paquet d'extension) ; la 5ᵉ (`tools/tests/test-build-extension.sh`) est en cours de câblage |
+| Recette visuelle | 30 états capturés à 375 / 768 / 1024 / 1440 px, aucun débordement horizontal |
+
+Ce tableau constate l'existant : il ne remplace aucune règle des sections précédentes.

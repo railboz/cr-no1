@@ -134,6 +134,24 @@ Ouvrez simplement `index.html` (double-clic). Aucune installation nécessaire.
 
 > ⚠️ Les données restent liées au navigateur et à l'emplacement du fichier. Pensez à exporter un JSON de sauvegarde avant de changer de machine ou de navigateur.
 
+### Fichiers du front
+
+Le style est découpé en 9 feuilles, chargées dans cet ordre par `index.html` :
+
+| Feuille | Rôle |
+| --- | --- |
+| `styles/tokens.css` | tokens du thème (couleurs, typo, espacements, rayons, motion) |
+| `styles/base.css` | reset, canvas, typographie de base, champs natifs |
+| `styles/layout.css` | coquille de page, barre du haut, navigation, rail des établissements |
+| `styles/components.css` | boutons, champs, cartes, dialogues, toasts |
+| `styles/planning.css` | grille de la semaine, blocs de shift, résumé |
+| `styles/mobile.css` | vue jour, navigation basse, bottom-sheets |
+| `styles/screens.css` | absences, statistiques, profil, établissements |
+| `styles/dicta.css` | dictaphone (bouton, pastille) |
+| `styles/utilities.css` | utilitaires, focus global, `prefers-reduced-motion` |
+
+L'ordre est contractuel (la cascade en dépend) et `utilities.css` reste en dernier. Le design system complet (tokens, composants, contrat JS → CSS `--c` / `--v`) est décrit dans `docs/DESIGN.md` : c'est la référence à lire avant de toucher au CSS, au HTML ou au JS du front.
+
 ## 📲 Installer comme application sur votre téléphone (PWA)
 
 Créno est une **PWA** (Progressive Web App) : depuis une page web, vous l'installez comme une vraie application — **icône dans le tiroir d'applications, ouverture plein écran sans barre de navigateur, fonctionne hors-ligne**. Pas de store, pas de signature, aucune autorisation.
@@ -184,7 +202,7 @@ Sur mobile, les effets graphiques coûteux (fond fixe, flou GPU) sont désactiv�
 
 Une version **extension** existe aussi, directement dans ce dépôt : le dossier `extension/` (Manifest V2) fournit l'icône de la barre d'outils et la synchro Skello **directe et privée** (permission réseau limitée à `https://api.skello.io/*`, plus `storage` pour l'onglet de l'extension, sans relais public).
 
-Les fichiers repris de l'app (`extension/index.html`, `app.js`, `styles.css`, `icons/`) et `dist/` sont générés à chaque construction et ignorés par git ; `extension/manifest.json`, `extension/background.js`, son `README.md` et `tools/` sont versionnés. Détails et reconstruction : `extension/README.md` et la section [Reconstruire l'extension](#reconstruire-lextension) plus bas.
+Les fichiers repris de l'app (`extension/index.html`, `app.js`, les 9 feuilles `styles/*.css`, `icons/`) et `dist/` sont générés à chaque construction et ignorés par git ; `extension/manifest.json`, `extension/background.js`, son `README.md` et `tools/` sont versionnés. Détails et reconstruction : `extension/README.md` et la section [Reconstruire l'extension](#reconstruire-lextension) plus bas.
 
 ## 📱 Extension Firefox pour téléphone (Android)
 
@@ -224,12 +242,12 @@ Ensuite, renseignez votre **URL Skello** dans la fenêtre d'import ICS : la sync
 Depuis la racine du dépôt (outils requis : `bash`, `python3`, `zip`, `unzip`, `sha256sum`) :
 
 ```bash
-bash tools/build-extension.sh            # → dist/creno-extension.zip (déterministe, 7 fichiers)
+bash tools/build-extension.sh            # → dist/creno-extension.zip (déterministe, 15 fichiers)
 bash tools/build-extension.sh --check    # vérifie le zip produit
 bash tools/build-extension.sh --clean    # supprime les artefacts générés
 ```
 
-Le script recopie `index.html`, `app.js` et `styles.css` depuis la racine, retire le manifeste PWA et le service worker, puis écrit un zip reproductible (`dist/creno-extension.zip`, horodatages figés) accompagné de son sha256. Le zip se renomme `.xpi` à l'installation, une fois signé par Mozilla.
+Le script recopie `index.html`, `app.js` et les 9 feuilles `styles/*.css` depuis la racine, retire le manifeste PWA et le service worker, puis écrit un zip reproductible (`dist/creno-extension.zip`, horodatages figés) accompagné de son sha256. Le paquet contient 15 fichiers : `manifest.json`, `background.js`, `index.html`, `app.js`, les 9 CSS sous `styles/` et les 2 icônes. `--check` contrôle la liste exacte des entrées, l'absence de fichiers PWA et le budget de taille (250 Kio) sur un zip déjà construit. Le zip se renomme `.xpi` à l'installation, une fois signé par Mozilla.
 
 ### Détails techniques
 
