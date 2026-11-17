@@ -4,10 +4,11 @@
 #   bash tools/run-tests.sh
 #
 # Suites: syntax (node --check), app relay E2E (real browser + route interception),
-#         UI contract E2E (18 assertions: week nav, salary/stats, Skello panel,
-#         persistence, template invariants — real browser, offline),
+#         UI contract E2E (19 assertions: week nav, salary/stats, Skello panel,
+#         persistence, template invariants, injection hardening — real browser, offline),
 #         extension package (builds the zip itself; SKIP only if tools/build-extension.sh
-#         is absent).
+#         is absent), extension build self-test (tools/tests/test-build-extension.sh:
+#         nominal, reproducibility, error cases, budget; works on throwaway copies).
 # Env: CRENO_REPO, CRENO_BROWSER, PLAYWRIGHT_MODULE (forwarded to the E2E harness).
 # Exit: 0 every executed suite passed, 1 at least one failed. A SKIP is not a failure,
 #       but it is counted and printed separately: it is not a pass.
@@ -43,8 +44,12 @@ if ! bash -n tools/run-tests.sh; then
   echo "  syntax error: tools/run-tests.sh"
   SYNTAX_OK=0
 fi
+if ! bash -n tools/tests/test-build-extension.sh; then
+  echo "  syntax error: tools/tests/test-build-extension.sh"
+  SYNTAX_OK=0
+fi
 if [ "$SYNTAX_OK" -eq 1 ]; then
-  record PASS "syntax (node --check app.js + background.js + 3 harness files, bash -n run-tests.sh)"
+  record PASS "syntax (node --check app.js + background.js + 3 harness files, bash -n run-tests.sh + test-build-extension.sh)"
 else
   record FAIL "syntax"
 fi
@@ -90,6 +95,14 @@ if [ "$EXT_RC" -eq 0 ]; then
   fi
 else
   record FAIL "extension package"
+fi
+
+# ---------------------------------------------------------------- extension build self-test
+echo "--- extension build self-test ---"
+if bash tools/tests/test-build-extension.sh; then
+  record PASS "extension build self-test"
+else
+  record FAIL "extension build self-test (see failed assertions above)"
 fi
 
 echo "----------------------------------------------------------------"

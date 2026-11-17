@@ -36,13 +36,18 @@
  * 16 template variables             .shift/.absence carry --c, .progress carries --v
  * 17 toast roles                    role="status" on success, role="alert" on error
  * 18 localStorage schema            settings = 4 baseline keys + relayUrl, nothing else
+ * 19 injection hardening            evil establishment color + absence type "constructor":
+ *                                   no injected node, no url() in style, fallback #34d399,
+ *                                   absence shown as "Autre", no NaN in stats, no error —
+ *                                   checked after reload (migrate) AND after an in-memory
+ *                                   colour override (render path / colorSafe)
  *
  * Run:  node tests/e2e/ui-contract.mjs
  * Env:  CRENO_REPO=/path/to/app          repository (or a temp copy) under test
  *       CRENO_BROWSER=/path/to/browser   browser executable (default: Brave)
  *       PLAYWRIGHT_MODULE=/path/to/playwright
  *
- * Exit: 0 all 18 cases pass, 1 at least one case fails, 2 harness/setup error.
+ * Exit: 0 all 19 cases pass, 1 at least one case fails, 2 harness/setup error.
  */
 
 import { createRequire } from 'node:module';
@@ -237,7 +242,7 @@ async function startServer(root) {
 
 const external = [];   /* every request that is not the local app server */
 
-async function openPage(browser, base, { width, height }, settings) {
+async function openPage(browser, base, { width, height }, settings, seedOverride) {
   const context = await browser.newContext({
     viewport: { width, height },
     deviceScaleFactor: 1,
@@ -261,10 +266,14 @@ async function openPage(browser, base, { width, height }, settings) {
     } catch { /* about:blank */ }
     /* The app auto-syncs once after 1.2 s; the contract cases must be the only caller. */
     try { Object.defineProperty(Navigator.prototype, 'onLine', { configurable: true, get: () => false }); } catch { /* ignore */ }
-  }, { key: LS_KEY, data: fixture(settings), fixedMs: FIXED_MS });
+  }, { key: LS_KEY, data: seedOverride || fixture(settings), fixedMs: FIXED_MS });
 
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
+
+  const errors = { console: [], page: [] };
+  page.on('console', m => { if (m.type() === 'error') errors.console.push(m.text().slice(0, 300)); });
+  page.on('pageerror', e => errors.page.push(String(e.message).slice(0, 300)));
 
   await page.route('**/*', route => {
     const url = route.request().url();
@@ -281,7 +290,7 @@ async function openPage(browser, base, { width, height }, settings) {
   };
   await load();
 
-  return { context, page, load };
+  return { context, page, load, errors };
 }
 
 /* ------------------------------------------------------------------ */
@@ -289,7 +298,14 @@ async function openPage(browser, base, { width, height }, settings) {
 /* ------------------------------------------------------------------ */
 
 const norm = s => String(s ?? '').replace(/\s+/g, ' ').trim();
-const txt = (page, sel) => page.evaluate(s => {
+/* Let CSS transitions/animations finish before reading computed styles. */
+async function settle(page) {
+  await page.evaluate(async () => {
+    const anims = document.getAnimations ? document.getAnimations() : [];
+    await Promise.all(anims.map(a => a.finished.catch(() => {})));
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  });
+}const txt = (page, sel) => page.evaluate(s => {
   const el = document.querySelector(s);
   return el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : null;
 }, sel);
@@ -672,6 +688,118 @@ const CASES = [
         ok,
         expected: `settings keys = [${expectedKeys.join(',')}], relayUrl=${RELAY_ORIGIN}`,
         observed: s ? `keys=[${s.keys.join(',')}] relayUrl=${s.relayUrl} skelloUrl=${s.skelloUrl}` : 'no cre-no-data-v1 entry',
+      };
+    },
+  },
+  {
+    n: 19,
+    title: 'injection hardening: evil CSS color + absence type "constructor" (six views)',
+    async run({ browser, base }) {
+      /* Same probe as /tmp/opencode/probe-injection.mjs: a colour that would break out of
+         the inline custom property, and an absence type that is an Object prototype key. */
+      const EVIL_COLOR = '#fff;background:url(//evil/x)';
+      const PALETTE_RGB = ['rgb(52, 211, 153)', 'rgb(96, 165, 250)', 'rgb(244, 114, 182)', 'rgb(251, 191, 36)',
+        'rgb(167, 139, 250)', 'rgb(248, 113, 113)', 'rgb(45, 212, 191)', 'rgb(232, 121, 249)'];
+      const seed = {
+        version: 1,
+        profile: { firstName: 'QA', lastName: 'PROBE', email: '', phone: '', rate: 12.5, objective: 35, refSalary: 0 },
+        establishments: [
+          { id: 'est-evil', name: 'INJECT:', color: EVIL_COLOR },
+          { id: 'est-ok', name: 'BOULANGERIE', color: '#60a5fa' },
+        ],
+        shifts: [
+          { id: 'sh-evil', estId: 'est-evil', date: TODAY_ISO, start: '08:00', end: '12:00', label: 'constructor', note: '' },
+          { id: 'sh-ok', estId: 'est-ok', date: TODAY_ISO, start: '13:00', end: '17:00', label: 'CAISSE', note: '' },
+        ],
+        absences: [{ id: 'ab-evil', type: 'constructor', start: TODAY_ISO, end: TODAY_ISO, note: '', status: 'Confirmée' }],
+        availability: [true, true, true, true, true, false, false],
+        settings: { skelloUrl: '', lastIcsSync: 0, allowProxy: true, mobileView: 'day', relayUrl: '' },
+      };
+
+      const st = await openPage(browser, base, { width: 390, height: 844 }, {}, seed);
+      const page = st.page;
+      const problems = [];
+      const notes = [];
+
+      const probe = async label => {
+        const d = await page.evaluate(() => {
+          const styles = [...document.querySelectorAll('[style]')].map(el => el.getAttribute('style') || '');
+          const visible = el => el.getClientRects().length > 0;
+          const shift = [...document.querySelectorAll('.shift')].find(visible);
+          const dots = [...document.querySelectorAll('.est-dot')].filter(visible).map(el => getComputedStyle(el).backgroundColor);
+          return {
+            injected: document.querySelectorAll('img, iframe, object, embed').length,
+            scripts: document.querySelectorAll('script').length,
+            badStyle: styles.filter(s => /url\s*\(/i.test(s) || /expression|javascript:/i.test(s)),
+            cVars: styles.map(s => (s.match(/--c:\s*([^;]*)/) || [])[1]).filter(Boolean),
+            shiftBg: shift ? getComputedStyle(shift).backgroundColor : null,
+            shiftC: shift ? shift.style.getPropertyValue('--c') : null,
+            dots,
+            absences: [...document.querySelectorAll('.absence, .md-absence')].map(a => a.textContent.replace(/\s+/g, ' ').trim()),
+            statsText: document.querySelector('#view-stats')?.textContent || '',
+            hbar: [...document.querySelectorAll('.hbar-key')].map(e => e.textContent.trim()),
+          };
+        });
+        if (d.injected) problems.push(`${label}: ${d.injected} injected img/iframe/object/embed`);
+        if (d.scripts !== 1) problems.push(`${label}: ${d.scripts} <script> tags (expected 1)`);
+        if (d.badStyle.length) problems.push(`${label}: style attr with url()/expression → ${d.badStyle[0].slice(0, 60)}`);
+        const badC = [...new Set(d.cVars.map(c => c.trim()))]
+          .filter(c => !/^#[0-9a-f]{6}$/i.test(c) && !/^var\(--[a-z0-9-]+\)$/i.test(c));
+        if (badC.length) problems.push(`${label}: non-hex --c → ${badC.join(',')}`);
+        if (d.shiftBg && d.shiftBg !== 'rgb(52, 211, 153)') problems.push(`${label}: shift bg ${d.shiftBg} (expected fallback rgb(52, 211, 153))`);
+        if (d.dots.length) {
+          const off = d.dots.filter(c => !PALETTE_RGB.includes(c));
+          if (off.length) problems.push(`${label}: dot colour outside palette → ${off.join(',')}`);
+          if (!d.dots.includes('rgb(52, 211, 153)')) problems.push(`${label}: no dot with fallback rgb(52, 211, 153)`);
+        }
+        if (d.absences.length) {
+          if (!d.absences.some(t => /AUTRE/.test(t))) problems.push(`${label}: absence not rendered as "Autre" → ${d.absences.join('|')}`);
+          if (d.absences.some(t => !t || /CONSTRUCTOR|undefined|null/i.test(t))) problems.push(`${label}: bad absence text → ${d.absences.join('|')}`);
+        }
+        if (/NaN/.test(d.statsText) || d.hbar.some(t => /NaN/.test(t))) problems.push(`${label}: NaN in statistics`);
+        notes.push(`${label}: shift=${d.shiftBg || 'n/a'} c=${d.shiftC || 'n/a'} dots=${d.dots.length} abs=${d.absences.length} hbar=${d.hbar.length}`);
+      };
+
+      try {
+        await settle(page);
+        await probe('planning-jour');
+        await page.click('#mdWeekBtn');
+        await page.waitForFunction(() => document.querySelectorAll('#mobileDayView .md-dayblock').length === 7);
+        await settle(page);
+        await probe('planning-semaine');
+        for (const v of ['absences', 'stats', 'profile']) {
+          await page.click(`#mainNav .nav-link[data-view="${v}"]`);
+          await page.waitForFunction(view => !document.querySelector('#view-' + view).classList.contains('hidden'), v);
+          await settle(page);
+          await probe(v);
+        }
+        await page.click('#avatarBtn');
+        await page.click('#avatarMenu [data-action="goto-establishments"]');
+        await page.waitForFunction(() => !document.querySelector('#view-establishments').classList.contains('hidden'));
+        await settle(page);
+        await probe('etablissements');
+
+        /* Second layer: migrate() sanitises the stored colour, so the render path must hold
+           too. Put the evil colour straight into the in-memory state (bypassing migrate),
+           render, and probe again — this is what pins colorSafe() down. */
+        await page.evaluate(evil => {
+          state.settings.mobileView = 'day';
+          switchView('planning');
+          state.establishments[0].color = evil;
+          renderPlanning();
+        }, EVIL_COLOR);
+        await settle(page);
+        await probe('contournement-memoire');
+      } finally {
+        await st.context.close();
+      }
+      if (st.errors.console.length) problems.push(`${st.errors.console.length} console error(s): ${st.errors.console[0]}`);
+      if (st.errors.page.length) problems.push(`${st.errors.page.length} page error(s): ${st.errors.page[0]}`);
+
+      return {
+        ok: problems.length === 0,
+        expected: 'no injected node, no url() in style, --c always hex, fallback rgb(52,211,153), absence "Autre", no NaN, 0 console/page error',
+        observed: problems.length ? problems.join(' | ') : notes.join(' ; '),
       };
     },
   },
