@@ -307,10 +307,10 @@ function renderGrid() {
   } else {
     state.establishments.forEach(est => {
       const t = minutesInWeek(weekStart, est.id);
-      html += `<div class="est-cell sticky-left" data-est="${est.id}" title="Modifier cet établissement">
+      html += `<button type="button" class="est-cell sticky-left" data-est="${est.id}" style="width:100%" title="Modifier cet établissement" aria-label="Ouvrir l'établissement ${esc(est.name)}">
         <div class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span><span>${esc(est.name)}</span></div>
         <div class="est-hours">${t ? fmtDur(t) : '—'}</div>
-      </div>`;
+      </button>`;
       days.forEach(d => {
         const iso = toISO(d);
         const dayShifts = state.shifts.filter(s => s.estId === est.id && s.date === iso).sort((a, b) => mins(a.start) - mins(b.start));
