@@ -1,0 +1,526 @@
+/* ============================================================
+   Créno — screens.css
+   Écrans Absences, Statistiques, Profil, Établissements + .empty-state.
+   Chargé APRÈS planning.css / mobile.css, AVANT dicta.css.
+
+   Périmètre strict :
+   - Absences : .absence-item (--ac posée par app.js), .a-*, .badge-status
+   - Statistiques : .cards (variantes locales de .stat-card),
+     .bars/.bar-*, .hbar-*, #statPayBar
+   - Profil : .profile-*, .form-grid, barre d'action sticky
+   - Établissements : .color-row/.color-dot (zone 44 / visuel 24)
+
+   Contrats :
+   - Les atomes .btn .chip .chips .row .progress .mini .toast .card
+     .stat-card .form-card .badge dialog .empty-state sont dans
+     components.css : on les CONSOMME, on ne les redéclare pas ici
+     (sauf variantes locales explicitement listées).
+   - Couleurs dynamiques : --ac (absence, posée par app.js) avec repli
+     sur --c puis --c-absence (contrat DESIGN §3 cible : --c).
+   - Aucun hex littéral : uniquement var(--…) et color-mix().
+   - Aucun !important, aucun outline:none.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. État vide — .empty-state (§4.17)
+   ------------------------------------------------------------ */
+.empty-state{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap: var(--sp-3);
+  padding: var(--sp-9) var(--sp-5);
+  text-align:center;
+}
+
+.empty-icon{
+  width:56px;
+  height:56px;
+  margin-bottom: var(--sp-2);
+  display:grid;
+  place-items:center;
+  border-radius: var(--r-pill);
+  background: var(--c-accent-soft);
+  font-size: var(--fs-8);
+  line-height:1;
+}
+
+.empty-state h3{
+  font-size: var(--fs-6);
+}
+
+.empty-state p{
+  max-width:46ch;
+  color: var(--c-text-2);
+  font-size: var(--fs-4);
+  line-height: var(--lh-base);
+  text-wrap: pretty;
+}
+
+@media (max-width: 719px){
+  .empty-state p{ font-size: var(--fs-5) }
+}
+
+.empty-state .btn{
+  margin-top: var(--sp-4);
+}
+
+/* ------------------------------------------------------------
+   2. Absences — liste (§4.18)
+   app.js pose style="--ac:…" ; on accepte aussi --c (cible DESIGN).
+   ------------------------------------------------------------ */
+.absence-item{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap: var(--sp-3) var(--sp-5);
+  margin-block-end: var(--sp-4);
+  padding: var(--sp-5) var(--sp-6);
+  background: var(--c-s1);
+  border:1px solid var(--c-border);
+  border-left:4px solid var(--ac, var(--c, var(--c-absence)));
+  border-radius: var(--r-md);
+}
+
+.a-icon{
+  flex:0 0 auto;
+  width:44px;
+  height:44px;
+  display:grid;
+  place-items:center;
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--ac, var(--c, var(--c-absence))) 14%, transparent);
+  color: var(--ac, var(--c, var(--c-absence)));
+  font-size: var(--fs-6);
+  line-height:1;
+}
+
+/* Le bloc texte n'a pas de classe dans le markup : on cible le frère
+   de .a-icon pour qu'il prenne la place restante et tronque proprement. */
+.absence-item > div:nth-child(2){
+  flex:1 1 12ch;
+  min-width:0;
+}
+
+.a-type{
+  color: var(--c-text);
+  font-size: var(--fs-4);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-snug);
+  overflow-wrap:anywhere;
+}
+
+.a-dates{
+  margin-top: var(--sp-1);
+  color: var(--c-text-2);
+  font-size: var(--fs-2);
+  line-height: var(--lh-snug);
+  overflow-wrap:anywhere;
+}
+
+.a-dates em{
+  color: var(--c-text-3);
+}
+
+.badge-status{
+  flex:0 0 auto;
+  order:2;
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--r-pill);
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-snug);
+  white-space:nowrap;
+}
+
+.a-actions{
+  flex:0 0 auto;
+  order:3;
+  display:flex;
+  gap: var(--sp-2);
+  margin-inline-start:auto;
+}
+
+@media (max-width: 719px){
+  .absence-item{
+    padding: var(--sp-4);
+    gap: var(--sp-3);
+  }
+
+  .a-actions{
+    flex:1 0 100%;
+    justify-content:flex-end;
+  }
+}
+
+/* ------------------------------------------------------------
+   3. Statistiques — cartes (§4.10)
+   .stat-card est un atome de components.css : ici, variantes locales.
+   ------------------------------------------------------------ */
+.cards{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--sp-5);
+  margin-block-end: var(--sp-7);
+}
+
+.stat-card .k{
+  color: var(--c-text-2);
+  font-size: var(--fs-2);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-snug);
+}
+
+.stat-card .v{
+  margin-top: var(--sp-2);
+  color: var(--c-text);
+  font-size: var(--fs-6);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-card .s{
+  margin-top: var(--sp-2);
+  color: var(--c-text-3);
+  font-size: var(--fs-2);
+  line-height: var(--lh-snug);
+}
+
+.stat-card.green .v{ color: var(--c-accent) }
+
+.stat-card.blue .v{ color: var(--c-info) }
+
+/* .mini / .mini-bar sont fournis par components.css (§4.11) : on ne les
+   redéclare pas. app.js ne pose plus que --v sur #statPayBar. */
+#statPayBar{ width: var(--v, 0%) }
+
+/* ------------------------------------------------------------
+   4. Statistiques — barres verticales (§4.11)
+   app.js pose --v (pourcentage) ; la hauteur vient du CSS.
+   ------------------------------------------------------------ */
+.bars{
+  display:flex;
+  align-items:stretch;
+  gap: var(--sp-5);
+  height:12rem;
+  padding-top: var(--sp-6);
+}
+
+.bar-col{
+  display:flex;
+  flex:1 1 0;
+  flex-direction:column;
+  align-items:center;
+  gap: var(--sp-3);
+  height:100%;
+  min-width:0;
+}
+
+.bar-zone{
+  flex:1;
+  width:100%;
+  display:flex;
+  align-items:flex-end;
+  justify-content:center;
+  min-height:0;
+}
+
+.bar{
+  position:relative;
+  width:100%;
+  max-width:46px;
+  height: var(--v, 0%);
+  min-height:3px;
+  border-radius: var(--r-sm) var(--r-sm) var(--sp-2) var(--sp-2);
+  background: var(--c-info);
+  transition: height var(--dur-4) var(--ease-inout);
+}
+
+.bar.cur{
+  background: var(--c-accent);
+}
+
+.bar-tip{
+  position:absolute;
+  top:-22px;
+  left:50%;
+  transform: translateX(-50%);
+  color: var(--c-text-2);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-snug);
+  white-space:nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-x{
+  color: var(--c-text-3);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-snug);
+  white-space:nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------
+   5. Statistiques — barres horizontales (§4.11)
+   app.js pose --v (largeur) et --c (établissement) ; repli --c-info.
+   ------------------------------------------------------------ */
+.hbar-row{
+  display:grid;
+  grid-template-columns:190px minmax(0, 1fr) 64px;
+  align-items:center;
+  gap: var(--sp-5);
+  margin-block-end: var(--sp-5);
+  font-size: var(--fs-3);
+}
+
+.hbar-row:last-child{
+  margin-block-end:0;
+}
+
+.hbar-key{
+  display:flex;
+  align-items:center;
+  gap: var(--sp-3);
+  min-width:0;
+  overflow:hidden;
+  color: var(--c-text-2);
+  font-size: var(--fs-2);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-snug);
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.hbar-track{
+  height:10px;
+  border-radius: var(--r-pill);
+  background: var(--c-s3);
+  overflow:hidden;
+}
+
+.hbar{
+  width: var(--v, 0%);
+  height:100%;
+  border-radius:inherit;
+  background: var(--c, var(--c-info));
+  transition: width var(--dur-4) var(--ease-inout);
+}
+
+.hbar-val{
+  color: var(--c-text-2);
+  font-size: var(--fs-2);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  text-align:right;
+  white-space:nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Stats sur 375 px : une colonne de cartes, barres compactes (§5.8). */
+@media (max-width: 719px){
+  .cards{
+    gap: var(--sp-4);
+  }
+
+  .bars{
+    gap: var(--sp-3);
+  }
+
+  .bar-tip{
+    font-size: var(--fs-1);
+  }
+
+  .hbar-row{
+    grid-template-columns:96px minmax(0, 1fr) 52px;
+    gap: var(--sp-4);
+  }
+}
+
+/* ------------------------------------------------------------
+   6. Profil (§5.9)
+   Le markup n'a qu'une seule .form-card : à ≥1024 elle devient une
+   grille « identité 320 | formulaire 1fr » (pas de nœud ajouté).
+   ------------------------------------------------------------ */
+.profile-layout{
+  display:grid;
+  grid-template-columns:minmax(0, 1fr);
+  gap: var(--sp-6);
+  align-items:start;
+}
+
+/* .form-card est la surface commune de components.css (§4.5) : on la
+   consomme, on ne redéclare ni fond, ni filet, ni padding. */
+
+.profile-head{
+  display:flex;
+  align-items:center;
+  gap: var(--sp-5);
+  margin-block-end: var(--sp-6);
+  padding-block-end: var(--sp-6);
+  border-bottom:1px solid var(--c-border-soft);
+}
+
+.profile-name{
+  font-size: var(--fs-6);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  overflow-wrap:anywhere;
+}
+
+.avatar-xl{
+  flex:0 0 auto;
+  width:84px;
+  height:84px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-8);
+  line-height:1;
+}
+
+/* 1 colonne sur téléphone, 2 colonnes dès 720 px (components.css, §5.9).
+   Redéclaré ici uniquement pour la règle ≥1024 ci-dessous. */
+.form-grid{
+  display:grid;
+  grid-template-columns:minmax(0, 1fr);
+  gap:0 var(--sp-6);
+}
+
+/* .chips et .row viennent de components.css : consommés, non redéclarés. */
+
+/* Barre d'action mobile : le bouton primaire reste collé au-dessus de la
+   nav basse. index.html place Enregistrer et Réinitialiser dans deux
+   `.row` successives (pas de conteneur dédié) : on cible chaque ligne. */
+.form-card > .row:has(> #profileSave){
+  position: sticky;
+  z-index:2;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--sp-3));
+  margin-inline: calc(-1 * var(--sp-5));
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--c-s1);
+  border-top:1px solid var(--c-border-soft);
+}
+
+/* Danger isolé : ligne séparée, filet + respiration (§5.9). */
+.form-card > .row:has(> #resetBtn){
+  margin-top: var(--sp-8);
+  padding-top: var(--sp-5);
+  border-top:1px solid var(--c-border-soft);
+}
+
+@media (min-width: 720px){
+  .form-card > .row:has(> #profileSave){
+    position:static;
+    margin-inline:0;
+    padding: var(--sp-6) 0 0;
+  }
+
+  .form-card > .row:has(> #resetBtn){
+    margin-top: var(--sp-7);
+  }
+}
+
+@media (min-width: 1024px){
+  .form-grid{
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+    column-gap: var(--sp-7);
+  }
+
+  #view-profile .form-card{
+    display:grid;
+    grid-template-columns:minmax(0, 320px) minmax(0, 1fr);
+    column-gap: var(--sp-9);
+    align-items:start;
+  }
+
+  #view-profile .profile-head{
+    grid-column:1;
+    grid-row:1 / span 4;
+    flex-direction:column;
+    align-items:flex-start;
+    gap: var(--sp-5);
+    margin-block-end:0;
+    padding-block-end:0;
+    padding-inline-end: var(--sp-8);
+    border-bottom:0;
+    border-right:1px solid var(--c-border-soft);
+  }
+
+  #view-profile .profile-head > div:last-child{
+    min-width:0;
+  }
+
+  #view-profile .form-grid{
+    grid-column:2;
+    grid-row:1;
+  }
+
+  #view-profile .field-block{
+    grid-column:2;
+    grid-row:2;
+    margin-top: var(--sp-6);
+  }
+
+  #view-profile .form-card > .row:has(> #profileSave){
+    grid-column:2;
+    grid-row:3;
+  }
+
+  #view-profile .form-card > .row:has(> #resetBtn){
+    grid-column:2;
+    grid-row:4;
+  }
+}
+
+/* ------------------------------------------------------------
+   7. Établissements (§5.10)
+   .est-card appartient à planning.css : on ne règle ici que la liste.
+   ------------------------------------------------------------ */
+#estViewList .est-card{
+  margin-block-end: var(--sp-3);
+}
+
+/* .color-row appartient à components.css, mais son gap par défaut (6 px)
+   laisse les cibles de 44 px se chevaucher : on l'écarte à 20 px pour que
+   les zones de frappe soient jointives (24 + 20 = 44), sans agrandir le
+   visuel. 8 pastilles restent sur une ligne dès 375 px. */
+.color-row{
+  gap: var(--sp-7);
+}
+
+/* On ne redéclare que la pastille : le bouton EST le visuel de 24 px, et
+   ::after étend la zone de frappe à 44 px (même procédé que .avatar,
+   DESIGN §8.2). Le JS actuel peint le fond inline ; le repli --c couvre
+   le contrat cible. */
+.color-dot{
+  position:relative;
+  width:24px;
+  height:24px;
+  flex:none;
+  border:2px solid transparent;
+  border-radius: var(--r-pill);
+  background: var(--c, var(--c-s3));
+  transition: transform var(--dur-1) var(--ease);
+}
+
+/* Zone de frappe 44 × 44 sans changer le visuel. */
+.color-dot::after{
+  content:'';
+  position:absolute;
+  /* Padding box = 20 px (24 − 2 × bordure) : −12 px ⇒ cible exactement 44 px. */
+  inset:-12px;
+  border-radius: var(--r-pill);
+}
+
+.color-dot:hover{ transform: scale(1.08) }
+
+.color-dot.sel,
+.color-dot[aria-pressed="true"]{ border-color: var(--c-text) }
+
+/* Neutralise l'ancien anneau ::before de components.css (la sélection est
+   portée par la bordure, lisible sur les 8 couleurs). */
+.color-dot.sel::before,
+.color-dot[aria-pressed="true"]::before{ content:none }

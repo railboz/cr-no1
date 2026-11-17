@@ -1,0 +1,614 @@
+/* ============================================================
+   Créno — planning.css
+   Écran planning desktop + tablette : barre de semaine, grille
+   semaine × établissements, blocs de shift/absence, rail des
+   établissements, résumé de semaine.
+
+   Chargé APRÈS components.css, AVANT mobile.css et utilities.css.
+
+   Contrats (docs/DESIGN.md) :
+   - Couleurs : uniquement var(--…) de tokens.css. Seule exception
+     autorisée : color-mix(…, #000) pour le rail du bloc de shift.
+   - JS : `--c` (couleur d'établissement/absence) et `--v` (barre :
+     pourcentage) sont les seules valeurs dynamiques. Toujours un
+     repli : var(--c, var(--c-s3)), var(--v, 0%).
+   - Aucun `!important`, aucun `@import`, aucune hauteur en
+     viewport statique (on utilise `100dvh` + --topbar-h).
+   - Le basculement mobile est 100 % CSS : `.mobile-day` est masquée
+     ici, mobile.css l'affiche et masque `.planning-layout` (< 720).
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. Barre de semaine
+   Un seul CTA primaire : le bouton « Ajouter un shift » ; la
+   synchro Skello reste un ghost. Les libellés de synchro et de
+   bascule mobile sont réécrits par app.js : aucun enfant, aucune
+   icône CSS dans ces nœuds.
+   ------------------------------------------------------------ */
+.weekbar{
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-5);
+}
+
+.weekbar-left,
+.weekbar-right{
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.weekbar-right{ margin-left: auto }
+
+.week-pill{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 148px;
+  min-height: var(--hit);
+  padding: 0 var(--sp-5);
+  background: var(--c-s2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  color: var(--c-text);
+  font-size: var(--fs-3);
+  font-weight: var(--fw-semi);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.week-num{
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--c-accent-soft);
+  border: 1px solid var(--c-accent-line);
+  border-radius: var(--r-pill);
+  color: var(--c-accent);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semi);
+  letter-spacing: var(--tr-eyebrow);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.date-jump{
+  width: 150px;
+  flex: 0 0 150px;
+  color: var(--c-text-2);
+  font-size: var(--fs-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* La bascule mobile n'existe qu'en < 720 (mobile.css). */
+.md-week-toggle{ display: none }
+
+/* ------------------------------------------------------------
+   2. Gabarit de la grille — plus de min-width:1080px
+   Les colonnes de jour se partagent l'espace restant
+   (minmax(0, 1fr) : aucune largeur plancher ne force un
+   débordement). Les libellés disparaissent sous ~110 px de
+   colonne via les container queries (§8).
+   ------------------------------------------------------------ */
+.grid-wrap{
+  min-width: 0;
+  overflow: auto;
+  isolation: isolate;
+  /* La hauteur bornée (100dvh, jamais une hauteur de viewport
+     statique) et le fond/cadre sont posés par layout.css : on ne
+     les redéclare pas ici. */
+  container-type: inline-size;
+  container-name: grid;
+}
+
+.week-grid{
+  display: grid;
+  grid-template-columns: var(--rail-w) repeat(7, minmax(0, 1fr));
+  align-content: start;
+  min-width: 0;
+  background: var(--c-bg);
+}
+
+/* ------------------------------------------------------------
+   3. Tête de grille et première colonne sticky
+   Empilement : corner 6 / day-head 5 / sticky-left 4
+   (.grid-wrap crée la couche avec isolation: isolate).
+   ------------------------------------------------------------ */
+.grid-head{
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 40px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-s1);
+  border-bottom: 1px solid var(--c-border);
+  white-space: nowrap;
+}
+
+.grid-head.corner{
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 6;
+  justify-content: flex-start;
+  color: var(--c-text-3);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semi);
+  letter-spacing: var(--tr-eyebrow);
+  text-transform: uppercase;
+}
+
+.sticky-left{
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--c-s1);
+}
+
+.dh-name{
+  color: var(--c-text-3);
+  font-size: var(--fs-2);
+  font-weight: var(--fw-med);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.dh-num{
+  color: var(--c-text);
+  font-size: var(--fs-5);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.dh-month{
+  color: var(--c-text-3);
+  font-size: var(--fs-1);
+}
+
+.day-head.today .dh-name{ color: var(--c-text) }
+
+/* « Aujourd'hui » = pastille info opaque, sans halo (le blanc
+   était à 2.75:1 ; --c-on-info est à 7.04:1). */
+.day-head.today .dh-num.badge{
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  background: var(--c-info);
+  border-radius: var(--r-pill);
+  color: var(--c-on-info);
+  font-size: var(--fs-4);
+}
+
+/* ------------------------------------------------------------
+   4. Cellules
+   Une seule grille, filets internes discrets. Survol ≥ 1.2:1
+   (--c-s3 / --c-bg = 1.27:1) pour rester visible.
+   ------------------------------------------------------------ */
+.cell{
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-height: 96px;
+  padding: var(--sp-2);
+  border-right: 1px solid var(--c-border-soft);
+  border-bottom: 1px solid var(--c-border-soft);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease);
+}
+
+.cell:hover{ background: var(--c-s3) }
+
+.cell.today{
+  background: color-mix(in oklab, var(--c-info) 6%, transparent);
+}
+
+.cell.today:hover{
+  background: color-mix(in oklab, var(--c-info) 12%, var(--c-s3));
+}
+
+/* Les cellules sont encore des <div> (ticket app.js) : la règle
+   est prête pour le jour où elles deviendront focusables. */
+.cell:focus-visible{
+  position: relative;
+  z-index: 1;
+  outline: var(--focus-w) solid var(--c-accent);
+  outline-offset: calc(var(--focus-off) * -1);
+}
+
+.est-cell{
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--sp-4);
+  border-right: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border-soft);
+  background: var(--c-s1);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease);
+}
+
+.est-cell:hover{
+  background: var(--c-s3);
+  box-shadow: inset 0 0 0 1px var(--c-border);
+}
+
+.est-name{
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  color: var(--c-text);
+  font-size: var(--fs-2);
+  font-weight: var(--fw-semi);
+  letter-spacing: .02em;
+  line-height: var(--lh-snug);
+  overflow-wrap: anywhere;
+}
+
+.est-name > span:last-child{
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.est-dot{
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  background: var(--c, var(--c-s3));
+}
+
+.est-hours{
+  color: var(--c-text-3);
+  font-size: var(--fs-1);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.grid-empty{
+  grid-column: 1 / -1;
+  padding: var(--sp-10) var(--sp-6);
+  color: var(--c-text-2);
+  font-size: var(--fs-5);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------
+   5. Bloc de shift (aplat var(--c) + rail sombre + encre)
+   `--c` est posé par app.js ; repli accent si absent.
+   ------------------------------------------------------------ */
+.shift{
+  --c: var(--c-accent);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 40px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c);
+  border-left: 3px solid color-mix(in oklab, var(--c) 60%, #000);
+  border-radius: var(--r-sm);
+  color: var(--c-shift-ink);
+  font-size: var(--fs-2);
+  text-align: left;
+  box-shadow: none;
+  transition: filter var(--dur-1) var(--ease);
+}
+
+.shift:hover{ filter: brightness(1.06) }
+.shift:active{ filter: brightness(.98) }
+
+.shift-time{
+  max-width: 100%;
+  font-size: var(--fs-2);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-snug);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shift-dur{
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-3);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semi);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-snug);
+  opacity: .85;
+}
+
+.shift-label{
+  max-width: 100%;
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semi);
+  letter-spacing: .06em;
+  line-height: var(--lh-snug);
+  text-transform: uppercase;
+  opacity: .9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* `.past` n'est utilisé que par la vue mobile ; la règle la couvre
+   aussi côté grille sans effet de bord. */
+.shift.past{ opacity: .55 }
+
+/* Absence : filet pointillé + fond teinté, texte porteur du sens. */
+.absence{
+  --c: var(--c-absence);
+  display: block;
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  background: color-mix(in oklab, var(--c) 8%, transparent);
+  border: 1px dashed color-mix(in oklab, var(--c) 45%, transparent);
+  border-radius: var(--r-sm);
+  color: var(--c);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semi);
+  letter-spacing: .06em;
+  line-height: var(--lh-snug);
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.absence:hover{
+  background: color-mix(in oklab, var(--c) 14%, transparent);
+}
+
+/* ------------------------------------------------------------
+   6. Rail des établissements (contenu ; la colonne elle-même
+   est positionnée par layout.css)
+   ------------------------------------------------------------ */
+.est-panel-title{
+  padding: var(--sp-1) var(--sp-3);
+  color: var(--c-text-3);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semi);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.est-card{
+  min-width: 0;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--c-s2);
+  border: 1px solid var(--c-border-soft);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease);
+}
+
+.est-card:hover{
+  background: var(--c-s3);
+  border-color: var(--c-border-field);
+}
+
+.est-empty{
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--c-text-3);
+  font-size: var(--fs-2);
+}
+
+/* Liste du rail : autorisée à rétrécir sous le min-content des cartes
+   (heures en nowrap) pour ne pas déborder de la colonne. */
+.est-list,
+#estList{ min-width: 0 }
+
+.est-add{
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: auto;
+  padding-top: var(--sp-3);
+}
+
+.est-add input{ min-width: 0; flex: 1 1 auto }
+
+/* ------------------------------------------------------------
+   7. Résumé de semaine — un seul chiffre en accent (le montant)
+   ------------------------------------------------------------ */
+.summarybar{
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  flex-wrap: wrap;
+  margin-top: var(--sp-6);
+  padding: var(--sp-5) var(--sp-6);
+  background: var(--c-s1);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+}
+
+.sum-item{
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  color: var(--c-text-2);
+  font-size: var(--fs-3);
+  white-space: nowrap;
+}
+
+.sum-item:last-of-type{ margin-left: auto }
+
+.sum-num{
+  color: var(--c-text);
+  font-size: var(--fs-6);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-snug);
+}
+
+.sum-money{
+  color: var(--c-accent);
+  font-size: var(--fs-8);
+  letter-spacing: -.01em;
+  line-height: var(--lh-tight);
+}
+
+/* ------------------------------------------------------------
+   8. Container queries — la largeur de colonne n'est pas
+   interrogeable directement : on interroge .grid-wrap et on
+   convertit (colonne = (largeur - rail) / 7).
+   - ≤ 1000px : la durée chevaucherait l'horaire → masquée
+   - ≤  930px : libellé masqué (≈ 110 px de colonne)
+   - ≤  800px : horaire en 11 px pour tenir dans la case
+   ------------------------------------------------------------ */
+@container grid (max-width: 1000px){
+  .shift-dur{ display: none }
+}
+
+@container grid (max-width: 930px){
+  .shift-label{ display: none }
+}
+
+@container grid (max-width: 860px){
+  .shift-time{
+    /* Colonne étroite : l'horaire passe sur deux lignes plutôt que
+       d'être tronqué (la case a la place en hauteur). */
+    white-space: normal;
+    overflow: visible;
+  }
+}
+
+/* Tête de jour : le mois disparaît quand la colonne devient trop
+   étroite pour « LUN 10 NOV. » (≈ 720–767 px de large). */
+@container grid (max-width: 760px){
+  .dh-month{ display: none }
+  .grid-head{ gap: var(--sp-1) }
+}
+
+/* ------------------------------------------------------------
+   9. Tablette 720 → 1023 : bandeau d'établissements horizontal
+   au-dessus de la grille, pas de débordement de page.
+   (Choix documenté : le rail devient un bandeau scrollable
+   plutôt que d'être masqué ; la grille garde sa colonne
+   d'établissements sticky.)
+   ------------------------------------------------------------ */
+@media (min-width: 720px) and (max-width: 1023px){
+  .weekbar{
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--sp-3);
+  }
+
+  .weekbar-left{ flex-wrap: wrap }
+
+  .weekbar-right{
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+
+  .planning-layout{
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--sp-5);
+  }
+
+  .est-panel{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--sp-4);
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    padding: var(--sp-3) var(--sp-4);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .est-panel-title{
+    flex: 0 0 auto;
+    padding: 0;
+  }
+
+  #estList,
+  .est-list{
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--sp-3);
+  }
+
+  .est-card{
+    flex: 0 0 auto;
+    min-width: 170px;
+  }
+
+  .est-add{
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0;
+  }
+
+  .est-add input{ width: 190px }
+
+  /* Colonne plancher 72 px : 720 px de large suffisent avec le
+     rail de 160 px, donc aucun scroll horizontal interne. */
+  .week-grid{
+    grid-template-columns: var(--rail-w) repeat(7, minmax(72px, 1fr));
+  }
+
+  .summarybar{
+    gap: var(--sp-4);
+    padding: var(--sp-4) var(--sp-5);
+  }
+}
+
+/* ------------------------------------------------------------
+   10. Desktop ≥ 1024 : résumé sticky en bas, montant héros
+   ------------------------------------------------------------ */
+@media (min-width: 1024px){
+  .summarybar{
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    border-top: 1px solid var(--c-border);
+  }
+
+  .sum-money{ font-size: var(--fs-9) }
+
+  /* layout.css laisse le rail en bandeau (flex-direction: row et
+     align-items: center hérités du palier tablette) : en colonne de
+     rail il doit s'empiler et s'étirer sur sa largeur. */
+  .est-panel{
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media (min-width: 1440px){
+  .summarybar{
+    gap: var(--sp-7);
+    padding: var(--sp-5) var(--sp-7);
+  }
+}
+
+/* ------------------------------------------------------------
+   11. Vue mobile : masquée par défaut (le seuil 720 est un
+   contrat — l'affichage est fait uniquement dans mobile.css).
+   ------------------------------------------------------------ */
+.mobile-day{ display: none }
