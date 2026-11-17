@@ -256,4 +256,4 @@ Le script recopie `index.html`, `app.js` et les 9 feuilles `styles/*.css` depuis
 - Permissions : la seule permission réseau est `https://api.skello.io/*`, plus `storage` pour mémoriser l'onglet de l'extension — pas de `tabs`, pas de `<all_urls>`, aucun relais public autorisé, la synchro ICS se fait sans CORS ;
 - `background.persistent: false` (pas de processus résident) et CSP explicite `script-src 'self'; object-src 'none';` ;
 - `browser_specific_settings.gecko.id` : `creno@loganbozier.fr` ;
-- Compatible Firefox 115+.
+- Compatible Firefox 121+ (`:has()` requis par les feuilles de style, `strict_min_version: "121.0"`).

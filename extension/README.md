@@ -1,6 +1,6 @@
 # Créno — extension Firefox
 
-**Manifest V2**, version 1.1.1 (Firefox 115+) : ouvrir l'app Créno dans un
+**Manifest V2**, version 1.1.1 (Firefox 121+, `strict_min_version: "121.0"` pour `:has()`) : ouvrir l'app Créno dans un
 onglet, avec un périmètre réseau minimal — l'app elle-même, plus
 `https://api.skello.io/*` pour la sync ICS directe.
 
