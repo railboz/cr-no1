@@ -274,10 +274,10 @@ function renderEstPanel() {
     const t = minutesInWeek(weekStart, est.id);
     const from = toISO(weekStart), to = toISO(addDays(weekStart, 6));
     const cnt = state.shifts.filter(s => s.estId === est.id && s.date >= from && s.date <= to).length;
-    return `<div class="est-card" data-est="${est.id}" title="Modifier cet établissement">
+    return `<button type="button" class="est-card" data-est="${est.id}" style="width:100%;text-align:left" title="Modifier cet établissement" aria-label="Ouvrir l'établissement ${esc(est.name)}">
       <div class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span>${esc(est.name)}</div>
       <div class="est-hours">${t ? fmtDur(t) : '0h'} · ${cnt} shift${cnt > 1 ? 's' : ''} cette semaine</div>
-    </div>`;
+    </button>`;
   }).join('');
 }
 /* Markup d'un shift : la couleur de l'établissement passe par --c, le CSS décide du rendu.
@@ -422,7 +422,7 @@ function renderMobileView() {
       </div>`;
     }
 
-    const sync = state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello">⟳ Sync</button>' : '';
+    const sync = state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello" aria-label="Synchroniser depuis Skello">⟳ Sync</button>' : '';
     wrap.innerHTML = `
       <div class="md-date">${sync}<b>Semaine ${isoWeek(weekStart)}</b> · ${esc(fmtRange(weekStart))}</div>
       <div class="md-days">${daysHtml}</div>`;
@@ -462,7 +462,7 @@ function renderMobileView() {
   }
 
   /* ⟳ Sync compact dans la ligne de date (uniquement si une URL Skello est enregistrée) */
-  const sync = state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello">⟳ Sync</button>' : '';
+  const sync = state.settings.skelloUrl ? '<button type="button" class="md-sync" title="Synchroniser Skello" aria-label="Synchroniser depuis Skello">⟳ Sync</button>' : '';
 
   wrap.innerHTML = `
     <div class="md-date">${sync}<b>${DAYS_LONG[mobileDayIdx]}</b> ${day.getDate()} ${MONTHS[day.getMonth()]} ${day.getFullYear()}${iso === today ? ' · <span class="md-today">aujourd&#39;hui</span>' : ''}</div>
@@ -573,10 +573,10 @@ function renderEstablishments() {
   list.innerHTML = state.establishments.map(est => {
     const mine = state.shifts.filter(s => s.estId === est.id);
     const total = mine.reduce((t, s) => t + durMinutes(s.start, s.end), 0);
-    return `<div class="est-card" data-est="${est.id}" title="Modifier cet établissement">
+    return `<button type="button" class="est-card" data-est="${est.id}" style="width:100%;text-align:left" title="Modifier cet établissement" aria-label="Ouvrir l'établissement ${esc(est.name)}">
       <div class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span>${esc(est.name)}</div>
       <div class="est-hours">${fmtDur(total)} · ${mine.length} shift${mine.length > 1 ? 's' : ''} au total</div>
-    </div>`;
+    </button>`;
   }).join('');
 }
 
