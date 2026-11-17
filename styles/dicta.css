@@ -63,7 +63,9 @@
 }
 
 #dictaPill{
-  position:fixed; z-index:150; right:var(--sp-8);
+  /* même plan que #dictaBtn (210) : la pastille et le bouton restent
+     visibles ensemble au-dessus de #dropOverlay (200). */
+  position:fixed; z-index:210; right:var(--sp-8);
   bottom:calc(var(--sp-8) + 48px + var(--sp-5) + env(safe-area-inset-bottom));
   display:flex; align-items:center; gap:var(--sp-4);
   max-width:min(340px,calc(100vw - 48px));

@@ -43,15 +43,6 @@ function fmtDur(m) {
 }
 const fmtEur = n => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-function shade(hex, f) { /* f < 0 => assombrit, f > 0 => éclaircit */
-  const n = parseInt(hex.slice(1), 16);
-  let r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
-  const t = f < 0 ? 0 : 255, p = Math.abs(f);
-  r = Math.round((t - r) * p + r);
-  g = Math.round((t - g) * p + g);
-  b = Math.round((t - b) * p + b);
-  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
-}
 function fmtRange(mon) {
   const sun = addDays(mon, 6);
   return `${mon.getDate()} ${MONTHS[mon.getMonth()]} – ${sun.getDate()} ${MONTHS[sun.getMonth()]} ${sun.getFullYear()}`;

@@ -543,6 +543,10 @@
     margin: auto auto 0;
     border-bottom: 0;
     border-radius: var(--r-xl) var(--r-xl) 0 0;
+    /* Ombre de feuille (tokens : --sh-sheet) : le panneau est ancré au
+       bas, l'ombre porte vers le haut. Elle ne modifie ni la boîte ni
+       le scroll (pseudo-élément du top layer). */
+    box-shadow: var(--sh-sheet);
   }
 
   dialog[open]{ animation: sheetUp var(--dur-3) var(--ease) }

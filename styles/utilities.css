@@ -1,8 +1,7 @@
 /* ============================================================
    Créno — utilities.css
    Chargé EN DERNIER. Uniquement : visibilité, lecteurs d'écran,
-   focus global, reduced-motion global, scroll-padding global,
-   helpers neutres.
+   focus global, reduced-motion global, scroll-padding global.
 
    Les règles de focus et de motion sont volontairement en fin de
    cascade : elles doivent gagner sur les composants. Le focus
@@ -51,16 +50,7 @@
 }
 
 /* ------------------------------------------------------------
-   4. Helpers neutres
-   ------------------------------------------------------------ */
-.num{ font-variant-numeric: tabular-nums }   /* chiffres alignés */
-
-.isolate{ isolation: isolate }               /* couche sticky + z-index */
-
-.cq{ container-type: inline-size }           /* portée de container query */
-
-/* ------------------------------------------------------------
-   5. Focus global
+   4. Focus global
    Anneau : #34d399 (8.77:1 sur --c-s2) — l'ancien halo
    rgba(52,211,153,.15) mesurait 1.35:1 et ne satisfaisait pas
    WCAG 2.4.11. Aucun outline:none ne doit subsister ailleurs.
@@ -97,7 +87,7 @@ html{
 }
 
 /* ------------------------------------------------------------
-   6. Mouvement réduit — interrupteur global
+   5. Mouvement réduit — interrupteur global
    Couvre les transitions de composants ET les animations pilotées
    par app.js (md-anim-*, sheetUp, dictaPulse).
    ------------------------------------------------------------ */
@@ -122,7 +112,7 @@ html{
 }
 
 /* ------------------------------------------------------------
-   7. Contraste forcé (Windows HC / mode contraste élevé)
+   6. Contraste forcé (Windows HC / mode contraste élevé)
    ------------------------------------------------------------ */
 @media (forced-colors: active){
   :where(a, button, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible{

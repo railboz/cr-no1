@@ -167,14 +167,9 @@
 
 /* ------------------------------------------------------------
    5. Barre de semaine
+   Propriétaire : planning.css (§1) — seule la structure des deux
+   groupes est posée ici, le reste appartient à l'écran planning.
    ------------------------------------------------------------ */
-.weekbar{
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  flex-wrap: wrap;
-  margin-bottom: var(--sp-5);
-}
 .weekbar-left,
 .weekbar-right{
   display: flex;
@@ -184,49 +179,6 @@
   min-width: 0;
 }
 .weekbar-right{ margin-left: auto }
-
-.week-pill{
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 148px;
-  min-height: var(--hit);
-  padding: 0 var(--sp-4);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-md);
-  background: var(--c-s2);
-  color: var(--c-text);
-  font-size: var(--fs-3);
-  font-weight: var(--fw-semi);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.week-num{
-  display: inline-flex;
-  align-items: center;
-  padding: var(--sp-1) var(--sp-4);
-  border: 1px solid var(--c-accent-line);
-  border-radius: var(--r-pill);
-  background: var(--c-accent-soft);
-  color: var(--c-accent);
-  font-size: var(--fs-1);
-  font-weight: var(--fw-semi);
-  letter-spacing: var(--tr-eyebrow);
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-/* Le champ date est un contrôle large par défaut (base.css) :
-   ici c'est une pastille de 150 px. */
-.date-jump{
-  width: 150px;
-  flex: 0 0 auto;
-  min-height: var(--hit);
-  padding-inline: var(--sp-3);
-  font-size: var(--fs-2);
-  color: var(--c-text-2);
-}
 
 /* Bascule Jour/Semaine : visible uniquement en mobile.
    Le texte est réécrit par app.js -> aucun enfant, icône CSS. */
@@ -280,8 +232,8 @@
 
 /* ------------------------------------------------------------
    7. Résumé de semaine
-   Structure interne (.sum-item, .progress…) : planning/comp.
-   Ici : conteneur, fond opaque et ancrage collant desktop.
+   Le conteneur (.summarybar) appartient à planning.css (§7) : ici
+   seulement la colonne de vue qui permet son ancrage en bas.
    ------------------------------------------------------------ */
 
 /* La vue planning est une colonne qui prend la fenêtre : le résumé
@@ -291,18 +243,6 @@
   display: flex;
   flex-direction: column;
   min-height: calc(100dvh - var(--topbar-h));
-}
-
-.summarybar{
-  display: flex;
-  align-items: center;
-  gap: var(--sp-5);
-  flex-wrap: wrap;
-  margin-top: auto;
-  padding: var(--sp-4) var(--sp-5);
-  background: var(--c-s1);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-lg);
 }
 
 /* ------------------------------------------------------------
@@ -397,14 +337,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--sp-2);
-  }
-
-  .summarybar{
-    position: sticky;
-    bottom: 0;
-    z-index: 3;
-    gap: var(--sp-6);
-    padding-inline: var(--sp-6);
   }
 }
 

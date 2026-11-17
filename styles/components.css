@@ -270,12 +270,6 @@
   font-size: var(--fs-6);
 }
 
-/* Puits creusé dans une carte (grille, zone de fond) */
-.panel-inset{
-  background: var(--c-bg);
-  border-color: var(--c-border-soft);
-}
-
 /* ------------------------------------------------------------
    6. Progression et mini-barre
    ------------------------------------------------------------ */
@@ -338,12 +332,15 @@
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-3);
+  flex: 0 0 auto;
+  order: 2;
+  padding: var(--sp-2) var(--sp-4);
   border-radius: var(--r-pill);
   background: var(--c-accent-soft);
   color: var(--c-accent);
   font-size: var(--fs-1);
   font-weight: var(--fw-semi);
+  line-height: var(--lh-snug);
   white-space: nowrap;
 }
 
@@ -381,16 +378,6 @@
   color: var(--c-warn);
 }
 .c-pill[data-state="error"]::before{ background: var(--c-warn) }
-
-.c-spinner{
-  width: 12px;
-  height: 12px;
-  flex: none;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: var(--r-pill);
-  animation: c-spin 900ms linear infinite;
-}
 
 @keyframes c-spin{
   to{ transform: rotate(360deg) }
@@ -699,7 +686,7 @@ dialog[open]{ animation: dialogPop var(--dur-3) var(--ease) }
   flex-direction: column;
   align-items: center;
   gap: var(--sp-3);
-  padding: var(--sp-9) var(--sp-6);
+  padding: var(--sp-9) var(--sp-5);
   text-align: center;
 }
 .empty-icon{
@@ -707,7 +694,7 @@ dialog[open]{ animation: dialogPop var(--dur-3) var(--ease) }
   height: 56px;
   display: grid;
   place-items: center;
-  margin-bottom: var(--sp-1);
+  margin-bottom: var(--sp-2);
   border-radius: var(--r-pill);
   background: var(--c-accent-soft);
   font-size: var(--fs-8);
@@ -718,6 +705,8 @@ dialog[open]{ animation: dialogPop var(--dur-3) var(--ease) }
   max-width: 46ch;
   color: var(--c-text-2);
   font-size: var(--fs-4);
+  line-height: var(--lh-base);
+  text-wrap: pretty;
 }
 
 /* ------------------------------------------------------------
@@ -747,7 +736,7 @@ dialog[open]{ animation: dialogPop var(--dur-3) var(--ease) }
 
 /* ------------------------------------------------------------
    13. Couleurs d'établissement (modale)
-   --c arrive de app.js. Visuel 32, zone de frappe 44 (::after).
+   --c arrive de app.js. Visuel 24, zone de frappe 44 (::after).
    ------------------------------------------------------------ */
 .color-row{
   display: flex;
@@ -757,8 +746,8 @@ dialog[open]{ animation: dialogPop var(--dur-3) var(--ease) }
 
 .color-dot{
   position: relative;
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   flex: none;
   border: 2px solid transparent;
   border-radius: var(--r-pill);
@@ -768,20 +757,13 @@ dialog[open]{ animation: dialogPop var(--dur-3) var(--ease) }
 .color-dot::after{
   content: '';
   position: absolute;
-  inset: -6px;
-  border-radius: inherit;
+  /* Padding box = 20 px (24 − 2 × bordure) : −12 px ⇒ cible exactement 44 px. */
+  inset: -12px;
+  border-radius: var(--r-pill);
 }
 .color-dot:hover{ transform: scale(1.08) }
 .color-dot.sel,
 .color-dot[aria-pressed="true"]{ border-color: var(--c-text) }
-.color-dot.sel::before,
-.color-dot[aria-pressed="true"]::before{
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: var(--r-pill);
-  border: 2px solid var(--c-shift-ink);
-}
 
 /* ------------------------------------------------------------
    14. Responsive des composants
@@ -822,7 +804,6 @@ dialog[open]{ animation: dialogPop var(--dur-3) var(--ease) }
    propres à ces composants).
    ------------------------------------------------------------ */
 @media (prefers-reduced-motion: reduce){
-  .c-spinner,
   .btn[aria-busy="true"]::before{
     animation: none;
   }

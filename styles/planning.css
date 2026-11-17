@@ -62,6 +62,8 @@
 }
 
 .week-num{
+  display: inline-flex;
+  align-items: center;
   padding: var(--sp-2) var(--sp-4);
   background: var(--c-accent-soft);
   border: 1px solid var(--c-accent-line);
@@ -77,6 +79,8 @@
 .date-jump{
   width: 150px;
   flex: 0 0 150px;
+  min-height: var(--hit);
+  padding-inline: var(--sp-3);
   color: var(--c-text-2);
   font-size: var(--fs-2);
   font-variant-numeric: tabular-nums;
@@ -615,6 +619,8 @@
     position: sticky;
     bottom: 0;
     z-index: 3;
+    gap: var(--sp-6);
+    padding-inline: var(--sp-6);
     border-top: 1px solid var(--c-border);
   }
 
