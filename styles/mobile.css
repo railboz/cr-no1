@@ -437,11 +437,13 @@
     min-width: 0;
     color: var(--c-text-2);
     font-size: var(--fs-2);
-    letter-spacing: .04em;
+    letter-spacing: 0;
     text-transform: uppercase;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* 360 px : « CHANTONNAY DISTRIBUTION » dépassait de 7 px la colonne
+       de 161 px. Le nom passe à la ligne plutôt que d'être tronqué. */
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
   }
 
   .md-dur{
@@ -568,6 +570,10 @@
   }
 
   .dialog-body{ padding: var(--sp-5) }
+
+  /* Deux colonnes dans la feuille : « Début / Fin » et « Du / Au »
+     tiennent sur une ligne, le sheet reste sous la hauteur d'écran. */
+  .dialog-body .form-grid{ grid-template-columns: 1fr 1fr }
 
   .dialog-foot{
     position: sticky;

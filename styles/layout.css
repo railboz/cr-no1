@@ -283,12 +283,22 @@
    Structure interne (.sum-item, .progress…) : planning/comp.
    Ici : conteneur, fond opaque et ancrage collant desktop.
    ------------------------------------------------------------ */
+
+/* La vue planning est une colonne qui prend la fenêtre : le résumé
+   est poussé en bas (margin-top:auto) au lieu de laisser ~450 px de
+   vide sous lui sur grand écran. */
+#view-planning{
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--topbar-h));
+}
+
 .summarybar{
   display: flex;
   align-items: center;
   gap: var(--sp-5);
   flex-wrap: wrap;
-  margin-top: var(--sp-5);
+  margin-top: auto;
   padding: var(--sp-4) var(--sp-5);
   background: var(--c-s1);
   border: 1px solid var(--c-border);
@@ -417,6 +427,11 @@
   body{
     padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
   }
+
+  /* Le min-height desktop (100dvh − topbar) ne s'applique pas ici :
+     sur mobile la barre du haut est statique et le body réserve déjà
+     --nav-h, donc la vue déborderait de ~58 px sous la nav basse. */
+  #view-planning{ min-height: 0 }
 
   .topbar{
     position: static;

@@ -170,6 +170,23 @@
   color: var(--c-text-3);
 }
 
+/* Libellé placé DANS un champ : ce n'est pas une étiquette de section,
+   donc pas de capitales ni de tracking. La version 11 px uppercase
+   reste réservée aux titres de bloc (.field-block, .field-label hors
+   champ). L'aide en `.small` passe sous le libellé, pas dans la ligne. */
+.field > .field-label,
+.field-label[for]{
+  font-size: var(--fs-2);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--c-text-2);
+}
+
+.field > .field-label .small{
+  display: block;
+  margin-top: var(--sp-1);
+}
+
 .field-block{ margin-top: var(--sp-6) }
 
 /* Erreur : signalée par aria-invalid (app.js), jamais par une classe */
@@ -284,10 +301,10 @@
 }
 
 .mini{
-  height: 4px;
+  height: 5px;
   margin-top: var(--sp-3);
   border-radius: var(--r-pill);
-  background: var(--c-s3);
+  background: var(--c-border);
   overflow: hidden;
 }
 .mini-bar{

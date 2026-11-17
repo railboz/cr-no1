@@ -253,11 +253,14 @@
   overflow-wrap: anywhere;
 }
 
-.est-name > span:last-child{
+/* Colonne de gauche de la grille : le nom passe à la ligne plutôt que
+   d'être coupé (rail de 160–220 px, jamais de troncature). */
+.est-cell .est-name > span:last-child{
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .est-dot{
@@ -275,6 +278,17 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Le rail de gauche affiche déjà le total : dans la grille, la colonne
+   d'établissements se limite au nom (pas de doublon tronqué). */
+.est-cell .est-hours{ display: none }
+
+/* Rail (160–220 px) : « 36h45 · 7 shifts cette semaine » n'a que ~144 px
+   à 1200 px et finissait en « … ». La ligne d'info passe à la ligne. */
+.est-panel .est-hours{
+  white-space: normal;
+  text-overflow: clip;
 }
 
 .grid-empty{
@@ -484,6 +498,16 @@
   .shift-label{ display: none }
 }
 
+/* Colonne ≈ ≤ 104 px (890 px de grille − rail de 160 px, / 7) : la
+   puce d'absence tient alors en 11 px sans tracking ni padding
+   latéral superflu (« 🌴 CONGÉS » ne doit pas finir en « 🌴 CON… »). */
+@container grid (max-width: 890px){
+  .absence{
+    padding-inline: var(--sp-2);
+    letter-spacing: 0;
+  }
+}
+
 @container grid (max-width: 860px){
   .shift-time{
     /* Colonne étroite : l'horaire passe sur deux lignes plutôt que
@@ -583,6 +607,11 @@
    ------------------------------------------------------------ */
 @media (min-width: 1024px){
   .summarybar{
+    /* Ancrage en bas de la vue (colonne flex, cf. layout.css §7) : les
+       ~450 px de vide sous le résumé disparaissent. Réservé au desktop :
+       en tablette (720–1023) le bouton dictaphone flottant recouvrait
+       le dernier item du résumé. */
+    margin-top: auto;
     position: sticky;
     bottom: 0;
     z-index: 3;
@@ -605,6 +634,14 @@
     gap: var(--sp-7);
     padding: var(--sp-5) var(--sp-7);
   }
+}
+
+/* Le dictaphone est flottant (48 px, right/bottom --sp-8, dicta.css) :
+   dès que le résumé est ancré en bas il mord sur son coin droit et
+   recouvrait « 12,5 €/h » à 1200 px. On réserve sa largeur (placé après
+   le palier 1440 pour ne pas être écrasé par son raccourci `padding`). */
+@media (min-width: 1024px){
+  .summarybar{ padding-right: calc(var(--sp-8) + 48px + var(--sp-3)) }
 }
 
 /* ------------------------------------------------------------

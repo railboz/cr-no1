@@ -82,6 +82,10 @@
   border-radius: var(--r-md);
 }
 
+/* La liste ne s'étire pas sur 1400 px : au-delà, la ligne d'absence
+   devient un ruban illisible (le reste de la vue garde sa largeur). */
+#absenceList{ max-width:1080px }
+
 .a-icon{
   flex:0 0 auto;
   width:44px;
@@ -226,6 +230,9 @@
   align-items:flex-end;
   justify-content:center;
   min-height:0;
+  /* Filet de base : une semaine sans heure se lit comme une valeur
+     nulle posée sur l'axe, pas comme un trou. */
+  border-bottom:1px solid var(--c-border);
 }
 
 .bar{
@@ -233,7 +240,7 @@
   width:100%;
   max-width:46px;
   height: var(--v, 0%);
-  min-height:3px;
+  min-height:0;
   border-radius: var(--r-sm) var(--r-sm) var(--sp-2) var(--sp-2);
   background: var(--c-info);
   transition: height var(--dur-4) var(--ease-inout);
@@ -271,7 +278,9 @@
    ------------------------------------------------------------ */
 .hbar-row{
   display:grid;
-  grid-template-columns:190px minmax(0, 1fr) 64px;
+  /* La clé est proportionnelle (34 %) : le nom passe à la ligne au lieu
+     d'être coupé à 49 % sur téléphone, et la valeur garde 52 px. */
+  grid-template-columns:minmax(88px, 34%) minmax(0, 1fr) 52px;
   align-items:center;
   gap: var(--sp-5);
   margin-block-end: var(--sp-5);
@@ -291,9 +300,9 @@
   color: var(--c-text-2);
   font-size: var(--fs-2);
   font-weight: var(--fw-semi);
-  line-height: var(--lh-snug);
+  line-height:1.2;
   text-overflow:ellipsis;
-  white-space:nowrap;
+  white-space:normal;
 }
 
 .hbar-track{
@@ -336,7 +345,8 @@
   }
 
   .hbar-row{
-    grid-template-columns:96px minmax(0, 1fr) 52px;
+    /* La clé reste proportionnelle (34 %, cf. §5) : plus de colonne
+       fixe à 96 px qui coupait les noms d'établissement. */
     gap: var(--sp-4);
   }
 }
@@ -354,7 +364,10 @@
 }
 
 /* .form-card est la surface commune de components.css (§4.5) : on la
-   consomme, on ne redéclare ni fond, ni filet, ni padding. */
+   consomme, on ne redéclare ni fond, ni filet, ni padding.
+   Seule exception : sous 720 px la ligne « Enregistrer » est collante
+   (ci-dessous) et recouvre le dernier champ — le bas de carte respire. */
+.form-card{ padding-bottom: var(--sp-9) }
 
 .profile-head{
   display:flex;
