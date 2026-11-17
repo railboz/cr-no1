@@ -6,7 +6,7 @@
 #   bash tools/build-extension.sh --check    # vérifie le zip déjà produit
 #   bash tools/build-extension.sh --clean    # supprime les artefacts générés
 #
-# Source unique de vérité : la racine du dépôt (index.html, app.js, styles.css,
+# Source unique de vérité : la racine du dépôt (index.html, app.js, styles/*.css,
 # icons/). Rien n'est figé en cache : les copies sont refaites à chaque appel.
 # Les fichiers générés dans extension/ sont ignorés par git (.gitignore).
 #
@@ -40,7 +40,7 @@ Usage: bash tools/build-extension.sh [build|--check|--clean|--help]
                   dist/creno-extension.zip (déterministe).
   --check         Vérifie le zip existant : manifeste, fichiers référencés,
                   liste exacte des entrées, fichiers interdits, budget de taille.
-  --clean         Supprime extension/{index.html,app.js,styles.css,icons/} et dist/.
+  --clean         Supprime extension/{index.html,app.js,styles/,icons/} et dist/.
   --help          Affiche cette aide.
 EOF
 }
@@ -128,11 +128,15 @@ assemble() {
   mkdir -p "$stage"
 
   # Fichiers de l'app, copiés depuis la racine À CHAQUE build (aucun cache).
-  for f in index.html app.js styles.css; do
+  for f in index.html app.js; do
     [ -f "$ROOT/$f" ] || die "fichier source absent : $f"
   done
+  local sheet
+  sheet=$(ls -1 "$ROOT"/styles/*.css 2>/dev/null | head -n 1) || sheet=
+  [ -n "$sheet" ] || die "aucune feuille de style : styles/*.css"
   transform "$stage"
-  cp "$ROOT/styles.css" "$stage/styles.css"
+  mkdir -p "$stage/styles"
+  cp "$ROOT"/styles/*.css "$stage/styles/"
 
   # Sources committées de l'extension (déjà en place quand $stage == extension/).
   for f in manifest.json background.js; do
@@ -177,11 +181,16 @@ PY
 # fichiers parasites) est exclu par construction.
 payload_list() {
   python3 - "$1" <<'PY'
-import json, pathlib, sys
+import json, pathlib, re, sys
 
 stage = pathlib.Path(sys.argv[1])
 m = json.loads((stage / 'manifest.json').read_text(encoding='utf-8'))
-files = ['manifest.json', 'background.js', 'index.html', 'app.js', 'styles.css']
+# Les feuilles de style embarquées sont exactement celles liées par index.html.
+html = (stage / 'index.html').read_text(encoding='utf-8')
+sheets = re.findall(r'<link rel="stylesheet" href="([^"]+)">', html)
+if not sheets:
+    sys.exit("index.html : aucune feuille <link rel=stylesheet> trouvée")
+files = ['manifest.json', 'background.js', 'index.html', 'app.js'] + sheets
 files += list(m.get('icons', {}).values())
 bi = m.get('browser_action', {}).get('default_icon')
 if isinstance(bi, str):
@@ -212,7 +221,7 @@ write_zip() {
 
 manifest_asserts() {
   python3 - "$1" <<'PY'
-import json, sys, zipfile, struct, io
+import json, re, sys, zipfile, struct, io
 
 zp = sys.argv[1]
 z = zipfile.ZipFile(zp)
@@ -253,7 +262,13 @@ if isinstance(bi, str):
 elif isinstance(bi, dict):
     refs += [(p, int(s)) for s, p in bi.items()]
 refs += [(p, None) for p in m['background']['scripts']]
-refs += [('index.html', None), ('app.js', None), ('styles.css', None)]
+
+# index.html et les feuilles de style qu'il lie doivent être dans le zip.
+html = z.read('index.html').decode('utf-8')
+sheets = re.findall(r'<link rel="stylesheet" href="([^"]+)">', html)
+if not sheets:
+    fail('index.html généré ne lie aucune feuille de style')
+refs += [('index.html', None), ('app.js', None)] + [(s, None) for s in sheets]
 
 for path, size in refs:
     if path not in names:
@@ -266,7 +281,6 @@ for path, size in refs:
             fail('%s : dimensions %dx%d != %d déclaré' % (path, w, h, size))
 
 # Pas de PWA dans l'extension : ni manifeste web, ni service worker.
-html = z.read('index.html').decode('utf-8')
 app = z.read('app.js').decode('utf-8')
 if 'manifest.webmanifest' in html or 'sw.js' in html:
     fail('index.html généré référence encore la PWA')
@@ -294,15 +308,15 @@ PY
 
 do_clean() {
   rm -rf -- "$DIST_DIR"
-  rm -f -- "$EXT_DIR/index.html" "$EXT_DIR/app.js" "$EXT_DIR/styles.css"
-  rm -rf -- "$EXT_DIR/icons"
-  note "Artefacts supprimés : dist/, extension/{index.html,app.js,styles.css,icons/}."
+  rm -f -- "$EXT_DIR/index.html" "$EXT_DIR/app.js"
+  rm -rf -- "$EXT_DIR/styles" "$EXT_DIR/icons"
+  note "Artefacts supprimés : dist/, extension/{index.html,app.js,styles/,icons/}."
 }
 
 do_build() {
   local stage=$EXT_DIR
-  rm -f -- "$EXT_DIR/index.html" "$EXT_DIR/app.js" "$EXT_DIR/styles.css"
-  rm -rf -- "$EXT_DIR/icons"
+  rm -f -- "$EXT_DIR/index.html" "$EXT_DIR/app.js"
+  rm -rf -- "$EXT_DIR/styles" "$EXT_DIR/icons"
   assemble "$stage"
   mkdir -p "$DIST_DIR"
   write_zip "$stage" "$ZIP_PATH"
@@ -374,7 +388,7 @@ PY
 
   # 7) Les copies générées ne doivent pas apparaître dans git.
   if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
-    for f in extension/index.html extension/app.js extension/styles.css extension/icons/icon-192.png dist/creno-extension.zip; do
+    for f in extension/index.html extension/app.js extension/styles/tokens.css extension/icons/icon-192.png dist/creno-extension.zip; do
       git -C "$ROOT" check-ignore -q "$f" || die "$f n'est pas ignoré par .gitignore"
     done
     note "artefacts générés bien ignorés par git"

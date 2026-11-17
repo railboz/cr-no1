@@ -46,7 +46,7 @@ copy_repo() {
   TMPDIRS+=("$d")
   tar -C "$ROOT" \
     --exclude=.git --exclude=dist --exclude='extension/index.html' \
-    --exclude='extension/app.js' --exclude='extension/styles.css' \
+    --exclude='extension/app.js' --exclude='extension/styles' \
     --exclude='extension/icons' -cf - . | tar -xf - -C "$d"
   COPY_DIR=$d
 }
@@ -70,9 +70,9 @@ Z1="$C1/dist/creno-extension.zip"
 rc=$?; check "zip créé" "$rc"
 LIST1=$(unzip -Z1 "$Z1" 2>/dev/null | sort)
 rc=$?
-EXPECTED=$'app.js\nbackground.js\nicons/icon-192.png\nicons/icon-512.png\nindex.html\nmanifest.json\nstyles.css'
+EXPECTED=$'app.js\nbackground.js\nicons/icon-192.png\nicons/icon-512.png\nindex.html\nmanifest.json\nstyles/base.css\nstyles/components.css\nstyles/dicta.css\nstyles/layout.css\nstyles/mobile.css\nstyles/planning.css\nstyles/screens.css\nstyles/tokens.css\nstyles/utilities.css'
 [ "$rc" -eq 0 ] && [ "$LIST1" = "$EXPECTED" ]
-rc=$?; check "liste des entrées exacte (7 fichiers)" "$rc"
+rc=$?; check "liste des entrées exacte (15 fichiers)" "$rc"
 printf '%s\n' "$LIST1" | grep -qxE '(sw\.js|manifest\.webmanifest|README\.md)'
 rc=$?; refute "aucun fichier interdit" "$rc"
 grep -q 'manifest.webmanifest' "$C1/extension/index.html"
@@ -147,7 +147,7 @@ copy_repo
 C9=$COPY_DIR
 # Données incompressibles : du texte répétitif passerait sous le budget une
 # fois déflaté, et le cas ne testerait plus rien.
-head -c 400000 /dev/urandom | base64 >> "$C9/styles.css"
+head -c 400000 /dev/urandom | base64 >> "$C9/styles/utilities.css"
 ERR=$(build_in "$C9" 2>&1)
 rc=$?; refute "build échoue au-delà de 250 Kio" "$rc"
 printf '%s\n' "$ERR" | grep -q 'budget dépassé'
