@@ -183,9 +183,11 @@ function getInitials() {
 function toast(msg, type = 'ok', ms = 2600) {
   const t = document.createElement('div');
   t.className = 'toast ' + type;
+  /* role posé AVANT l'insertion : certains lecteurs d'écran n'annoncent pas
+     un nœud dont le rôle apparaît après son rattachement au document. */
+  t.setAttribute('role', type === 'error' ? 'alert' : 'status');
   t.textContent = msg;
   $('#toasts').appendChild(t);
-  t.setAttribute('role', type === 'error' ? 'alert' : 'status');
   setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 350); }, ms);
 }
 
@@ -313,15 +315,24 @@ function renderGrid() {
         const iso = toISO(d);
         const dayShifts = state.shifts.filter(s => s.estId === est.id && s.date === iso).sort((a, b) => mins(a.start) - mins(b.start));
         const dayAbs = state.absences.filter(a => a.start <= iso && iso <= a.end);
-        html += `<div class="cell ${iso === today ? 'today' : ''}" data-est="${est.id}" data-date="${iso}">`;
+        /* Cellule vide : cible de clic autonome, donc un vrai bouton (focusable, Entrée
+           et Espace l'activent, `closest('.cell')` reste inchangé). Cellule occupée :
+           elle contient des boutons (.absence/.shift) et un <button> ne peut pas en
+           contenir d'autres — elle reste un conteneur, le clavier atteint ses enfants. */
+        const empty = !dayAbs.length && !dayShifts.length;
+        const cls = `cell ${iso === today ? 'today' : ''}`;
+        const attrs = `data-est="${est.id}" data-date="${iso}"`;
+        html += empty
+          ? `<button type="button" class="${cls}" ${attrs} aria-label="Ajouter un shift le ${d.getDate()} ${MONTHS[d.getMonth()]}"></button>`
+          : `<div class="${cls}" ${attrs}>`;
         dayAbs.forEach(a => {
           const meta = Object.hasOwn(AB_TYPES, a.type) ? AB_TYPES[a.type] : AB_TYPES['Autre'];
-          html += `<div class="absence" data-absence="1" style="--c:${meta.color}" title="${esc(a.note || a.type)}">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
+          html += `<button type="button" class="absence" data-absence="1" style="--c:${meta.color}" title="${esc(a.note || a.type)}">${meta.icon} ${esc(a.type.toUpperCase())}</button>`;
         });
         dayShifts.forEach(s => {
           html += shiftMarkup(s, est);
         });
-        html += '</div>';
+        html += empty ? '</button>' : '</div>';
       });
     });
   }
@@ -391,7 +402,7 @@ function renderMobileView() {
 
       let cards = abs.map(a => {
         const meta = Object.hasOwn(AB_TYPES, a.type) ? AB_TYPES[a.type] : AB_TYPES['Autre'];
-        return `<div class="md-absence ${past ? 'past' : ''}" data-absence="1" style="--c:${meta.color}">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
+        return `<button type="button" class="md-absence ${past ? 'past' : ''}" data-absence="1" style="--c:${meta.color}">${meta.icon} ${esc(a.type.toUpperCase())}</button>`;
       }).join('');
       cards += dayShifts.map(({ s, est }) => `
         <button type="button" class="md-shift ${past ? 'past' : ''}" data-id="${s.id}" style="--c:${colorSafe(est.color)}" title="${esc(s.note || '')}">
@@ -425,7 +436,7 @@ function renderMobileView() {
 
   let body = '';
   if (!state.establishments.length) {
-    body = '<div class="md-empty" id="mdNoEst">🏢 Aucun établissement<br><span class="small">Touchez ici pour en ajouter un (menu → Établissements)</span></div>';
+    body = '<button type="button" class="md-empty" id="mdNoEst">🏢 Aucun établissement<br><span class="small">Touchez ici pour en ajouter un (menu → Établissements)</span></button>';
   } else {
     state.establishments.forEach(est => {
       const shifts = state.shifts.filter(s => s.estId === est.id && s.date === iso).sort((a, b) => mins(a.start) - mins(b.start));
@@ -433,20 +444,20 @@ function renderMobileView() {
       if (!shifts.length && !abs.length) return;
       const total = shifts.reduce((t, s) => t + durMinutes(s.start, s.end), 0);
       body += `<div class="md-est">
-        <div class="md-est-head" data-est="${est.id}">
+        <button type="button" class="md-est-head" data-est="${est.id}" style="width:100%">
           <span class="est-dot" style="--c:${colorSafe(est.color)}"></span>
           <span>${esc(est.name)}</span>
           ${total ? `<span class="md-est-total">${fmtDur(total)}</span>` : ''}
-        </div>
+        </button>
         ${abs.map(a => {
           const meta = Object.hasOwn(AB_TYPES, a.type) ? AB_TYPES[a.type] : AB_TYPES['Autre'];
-          return `<div class="md-absence" data-absence="1" style="--c:${meta.color}">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
+          return `<button type="button" class="md-absence" data-absence="1" style="--c:${meta.color};width:100%">${meta.icon} ${esc(a.type.toUpperCase())}</button>`;
         }).join('')}
         ${shifts.map(s => shiftMarkup(s, est)).join('')}
       </div>`;
     });
     if (!body) {
-      body = `<div class="md-empty">😌 Rien de prévu le ${DAYS_LONG[mobileDayIdx]} ${day.getDate()} ${MONTHS[day.getMonth()]}<br><span class="small">Touchez ici pour ajouter un shift</span></div>`;
+      body = `<button type="button" class="md-empty">😌 Rien de prévu le ${DAYS_LONG[mobileDayIdx]} ${day.getDate()} ${MONTHS[day.getMonth()]}<br><span class="small">Touchez ici pour ajouter un shift</span></button>`;
     }
   }
 
@@ -548,7 +559,7 @@ function openEstModal(id) {
 }
 function renderEstColors() {
   $('#estColors').innerHTML = PALETTE.map(c =>
-    `<button type="button" class="color-dot ${c === estModalColor ? 'sel' : ''}" data-color="${c}" style="background:${c}" title="${c}" aria-label="Couleur ${c}"></button>`
+    `<button type="button" class="color-dot ${c === estModalColor ? 'sel' : ''}" data-color="${c}" style="--c:${c}" title="${c}" aria-label="Couleur ${c}" aria-pressed="${c === estModalColor}"></button>`
   ).join('');
 }
 
@@ -586,7 +597,7 @@ function renderAbsences() {
     const dates = a.start === a.end
       ? `le ${d1.getDate()} ${MONTHS[d1.getMonth()]} ${d1.getFullYear()}`
       : `du ${d1.getDate()} ${MONTHS[d1.getMonth()]} au ${d2.getDate()} ${MONTHS[d2.getMonth()]} ${d2.getFullYear()}`;
-    return `<div class="absence-item" style="--ac:${meta.color}">
+    return `<div class="absence-item" style="--c:${meta.color}">
       <div class="a-icon">${meta.icon}</div>
       <div>
         <div class="a-type">${esc(a.type)}</div>
@@ -642,7 +653,7 @@ function renderStats() {
     const pct = Math.round(w.min / max * 100);
     const cur = toISO(w.mon) === toISO(curWeek);
     return `<div class="bar-col">
-      <div class="bar-zone"><div class="bar ${cur ? 'cur' : ''}" style="--v:${Math.max(3, pct)}%"><span class="bar-tip">${w.min ? fmtDur(w.min) : ''}</span></div></div>
+      <div class="bar-zone"><div class="bar ${cur ? 'cur' : ''}" style="--v:${pct > 0 ? Math.max(3, pct) : 0}%"><span class="bar-tip">${w.min ? fmtDur(w.min) : ''}</span></div></div>
       <span class="bar-x">S${isoWeek(w.mon)}</span>
     </div>`;
   }).join('');
@@ -674,7 +685,7 @@ function renderStats() {
   $('#hbarsLabels').innerHTML = top.length
     ? top.map(([k, v]) => `<div class="hbar-row">
         <div class="hbar-key">${esc(k)}</div>
-        <div class="hbar-track"><div class="hbar" style="--v:${Math.round(v / maxL * 100)}%;--c:var(--blue)"></div></div>
+        <div class="hbar-track"><div class="hbar" style="--v:${Math.round(v / maxL * 100)}%"></div></div>
         <div class="hbar-val">${fmtDur(v)}</div>
       </div>`).join('')
     : '<div class="muted">Pas encore de données.</div>';
@@ -875,13 +886,25 @@ function openIcsModal() {
 }
 function renderSyncInfo() {
   const t = state.settings.lastIcsSync;
-  $('#icsLastSync').textContent = t
-    ? 'Dernière synchro : ' + new Date(t).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
-    : 'Jamais synchronisé';
+  const pill = $('#icsLastSync');
+  if (pill) {
+    pill.textContent = t
+      ? 'Dernière synchro : ' + new Date(t).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
+      : 'Jamais synchronisé';
+    /* Le texte ci-dessus ne décrit que l'état « repos » ; la pastille suit
+       l'état réel de la synchro (busy / error posés par syncSkello). */
+    pill.dataset.state = t ? 'ok' : 'idle';
+  }
   /* #icsRelayUrl n'est rempli qu'à l'ouverture du dialogue (et après un enregistrement réussi) :
      renderSyncInfo est aussi appelé par la synchro automatique et ne doit jamais écraser
      une saisie en cours. L'avertissement du champ relais est géré séparément (renderRelayError). */
   $('#icsSyncNowBtn').disabled = !(state.settings.skelloUrl || '').trim();
+}
+/* État visuel de la pastille de synchro (components.css : idle/ok/busy/error).
+   Le texte reste la propriété exclusive de renderSyncInfo. */
+function setSyncPill(state) {
+  const el = $('#icsLastSync');
+  if (el) el.dataset.state = state;
 }
 /* Signale dans le dialogue un relais enregistré mais inutilisable (URL invalide restaurée). */
 function renderRelayError(raw) {
@@ -906,7 +929,9 @@ function updateSyncBtn() {
 }
 function setSyncBtn(mode) {
   const b = $('#syncIcsBtn');
-  if (b) b.textContent = mode === 'busy' ? '⟳ Synchro…' : '⟳ Sync Skello';
+  if (!b) return;
+  b.textContent = mode === 'busy' ? '⟳ Synchro…' : '⟳ Sync Skello';
+  b.toggleAttribute('aria-busy', mode === 'busy');
 }
 
 /* Récupère l'ICS depuis l'URL enregistrée : direct, puis relais privé, puis relais publics si bloqué */
@@ -1037,6 +1062,7 @@ async function syncSkello(opts = {}) {
   $('#icsSyncNowBtn').disabled = true;
   $('#icsSyncNowBtn').setAttribute('aria-busy', 'true');
   setSyncBtn('busy');
+  setSyncPill('busy');
   if (!opts.silent) toast('Synchronisation avec Skello…');
 
   const plan = buildIcsRoutes(url, state.settings);
@@ -1064,8 +1090,9 @@ async function syncSkello(opts = {}) {
 
   if (!txt) {
     setSyncBtn('idle');
-    /* App mise en arrière-plan : on abandonne sans alerter, on réessaiera au retour.
+    /* Arrière-plan : pas d'erreur (on réessaiera au retour), on rend l'état de repos.
        Sinon, message actionnable selon la configuration (jamais de relais public en repli). */
+    setSyncPill(abortedByHide ? (state.settings.lastIcsSync ? 'ok' : 'idle') : 'error');
     if (!abortedByHide) {
       if (plan.mode === 'relay-invalid') toast(plan.error, 'error', 9000);
       else if (plan.mode === 'relay') toast(RELAY_UNREACHABLE, 'error', 9000);
@@ -1076,7 +1103,7 @@ async function syncSkello(opts = {}) {
 
   let stats = null;
   try { stats = await applyICSImport(txt, { confirm: false, toast: false }); }
-  catch (e) { console.error('Créno : échec import ICS', e); toast('Import du calendrier impossible', 'error'); }
+  catch (e) { console.error('Créno : échec import ICS', e); setSyncPill('error'); toast('Import du calendrier impossible', 'error'); }
   finally { setSyncBtn('idle'); }
   if (!stats) return;
   state.settings.lastIcsSync = Date.now();
@@ -1520,6 +1547,14 @@ function init() {
         e.preventDefault();
         if (!e.repeat) dictaToggle();
       }
+      return;
+    }
+    /* Échap ferme le menu avatar (ce n'est pas un <dialog> : la fermeture
+       native ne s'applique pas) et rend le focus au bouton qui l'a ouvert. */
+    if (e.key === 'Escape' && !avatarMenu.classList.contains('hidden')) {
+      avatarMenu.classList.add('hidden');
+      syncAvatarAria();
+      avatarBtn.focus();
       return;
     }
     if (document.querySelector('dialog[open]')) return;
