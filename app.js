@@ -85,6 +85,10 @@ function blankState() {
 const RE_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const RE_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const RE_COLOR = /^#[0-9a-f]{6}$/i;
+/* Couleur insérée dans un attribut style (--c / --ac) : toute valeur non conforme est
+   remplacée par l'accent. Pas `transparent` : l'encre des shifts est sombre (--c-shift-ink),
+   un fond transparent la rendrait illisible sur la surface. */
+const colorSafe = v => RE_COLOR.test(v) ? v : '#34d399';
 const RE_ID = /^[\w.:-]{1,64}$/;
 const safeId = v => (typeof v === 'string' && RE_ID.test(v)) ? v : uid();
 function migrate(data) {
@@ -106,7 +110,7 @@ function migrate(data) {
     .map(x => ({ ...x, id: safeId(x.id), label: String(x.label ?? ''), note: String(x.note ?? '') }));
   s.absences = (Array.isArray(data.absences) ? data.absences : []).filter(isObj)
     .filter(x => RE_ISO.test(x.start) && RE_ISO.test(x.end) && x.end >= x.start)
-    .map(x => ({ ...x, id: safeId(x.id), type: AB_TYPES[x.type] ? x.type : 'Autre', note: String(x.note ?? ''), status: String(x.status || 'Confirmée') }));
+    .map(x => ({ ...x, id: safeId(x.id), type: Object.hasOwn(AB_TYPES, x.type) ? x.type : 'Autre', note: String(x.note ?? ''), status: String(x.status || 'Confirmée') }));
   s.availability = (Array.isArray(data.availability) && data.availability.length === 7)
     ? data.availability.slice()
     : [true, true, true, true, true, false, false];
@@ -269,7 +273,7 @@ function renderEstPanel() {
     const from = toISO(weekStart), to = toISO(addDays(weekStart, 6));
     const cnt = state.shifts.filter(s => s.estId === est.id && s.date >= from && s.date <= to).length;
     return `<div class="est-card" data-est="${est.id}" title="Modifier cet établissement">
-      <div class="est-name"><span class="est-dot" style="--c:${est.color}"></span>${esc(est.name)}</div>
+      <div class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span>${esc(est.name)}</div>
       <div class="est-hours">${t ? fmtDur(t) : '0h'} · ${cnt} shift${cnt > 1 ? 's' : ''} cette semaine</div>
     </div>`;
   }).join('');
@@ -277,7 +281,7 @@ function renderEstPanel() {
 /* Markup d'un shift : la couleur de l'établissement passe par --c, le CSS décide du rendu.
    Source unique pour les deux vues qui affichent un .shift (grille semaine + vue mobile). */
 function shiftMarkup(s, est) {
-  return `<button type="button" class="shift" data-id="${s.id}" style="--c:${est.color}" title="${esc(s.note || '')}">
+  return `<button type="button" class="shift" data-id="${s.id}" style="--c:${colorSafe(est.color)}" title="${esc(s.note || '')}">
             <span class="shift-time">${esc(s.start)} – ${esc(s.end)}</span>
             <span class="shift-dur">${fmtDur(durMinutes(s.start, s.end))}</span>
             <span class="shift-label">${esc(s.label || 'SHIFT')}</span>
@@ -302,7 +306,7 @@ function renderGrid() {
     state.establishments.forEach(est => {
       const t = minutesInWeek(weekStart, est.id);
       html += `<div class="est-cell sticky-left" data-est="${est.id}" title="Modifier cet établissement">
-        <div class="est-name"><span class="est-dot" style="--c:${est.color}"></span><span>${esc(est.name)}</span></div>
+        <div class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span><span>${esc(est.name)}</span></div>
         <div class="est-hours">${t ? fmtDur(t) : '—'}</div>
       </div>`;
       days.forEach(d => {
@@ -311,7 +315,7 @@ function renderGrid() {
         const dayAbs = state.absences.filter(a => a.start <= iso && iso <= a.end);
         html += `<div class="cell ${iso === today ? 'today' : ''}" data-est="${est.id}" data-date="${iso}">`;
         dayAbs.forEach(a => {
-          const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
+          const meta = Object.hasOwn(AB_TYPES, a.type) ? AB_TYPES[a.type] : AB_TYPES['Autre'];
           html += `<div class="absence" data-absence="1" style="--c:${meta.color}" title="${esc(a.note || a.type)}">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
         });
         dayShifts.forEach(s => {
@@ -386,11 +390,11 @@ function renderMobileView() {
       const abs = state.absences.filter(a => a.start <= iso && iso <= a.end);
 
       let cards = abs.map(a => {
-        const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
+        const meta = Object.hasOwn(AB_TYPES, a.type) ? AB_TYPES[a.type] : AB_TYPES['Autre'];
         return `<div class="md-absence ${past ? 'past' : ''}" data-absence="1" style="--c:${meta.color}">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
       }).join('');
       cards += dayShifts.map(({ s, est }) => `
-        <button type="button" class="md-shift ${past ? 'past' : ''}" data-id="${s.id}" style="--c:${est.color}" title="${esc(s.note || '')}">
+        <button type="button" class="md-shift ${past ? 'past' : ''}" data-id="${s.id}" style="--c:${colorSafe(est.color)}" title="${esc(s.note || '')}">
           <span class="md-bar"></span>
           <span class="md-row"><span class="md-time">${esc(s.start)} – ${esc(s.end)}</span><span class="md-estname">${esc(est.name)}</span><span class="md-dur">${fmtDur(durMinutes(s.start, s.end))}</span></span>
           <span class="md-label">${esc(s.label || 'SHIFT')}</span>
@@ -430,12 +434,12 @@ function renderMobileView() {
       const total = shifts.reduce((t, s) => t + durMinutes(s.start, s.end), 0);
       body += `<div class="md-est">
         <div class="md-est-head" data-est="${est.id}">
-          <span class="est-dot" style="--c:${est.color}"></span>
+          <span class="est-dot" style="--c:${colorSafe(est.color)}"></span>
           <span>${esc(est.name)}</span>
           ${total ? `<span class="md-est-total">${fmtDur(total)}</span>` : ''}
         </div>
         ${abs.map(a => {
-          const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
+          const meta = Object.hasOwn(AB_TYPES, a.type) ? AB_TYPES[a.type] : AB_TYPES['Autre'];
           return `<div class="md-absence" data-absence="1" style="--c:${meta.color}">${meta.icon} ${esc(a.type.toUpperCase())}</div>`;
         }).join('')}
         ${shifts.map(s => shiftMarkup(s, est)).join('')}
@@ -544,7 +548,7 @@ function openEstModal(id) {
 }
 function renderEstColors() {
   $('#estColors').innerHTML = PALETTE.map(c =>
-    `<button type="button" class="color-dot ${c === estModalColor ? 'sel' : ''}" data-color="${c}" style="background:${c}" title="${c}"></button>`
+    `<button type="button" class="color-dot ${c === estModalColor ? 'sel' : ''}" data-color="${c}" style="background:${c}" title="${c}" aria-label="Couleur ${c}"></button>`
   ).join('');
 }
 
@@ -559,7 +563,7 @@ function renderEstablishments() {
     const mine = state.shifts.filter(s => s.estId === est.id);
     const total = mine.reduce((t, s) => t + durMinutes(s.start, s.end), 0);
     return `<div class="est-card" data-est="${est.id}" title="Modifier cet établissement">
-      <div class="est-name"><span class="est-dot" style="--c:${est.color}"></span>${esc(est.name)}</div>
+      <div class="est-name"><span class="est-dot" style="--c:${colorSafe(est.color)}"></span>${esc(est.name)}</div>
       <div class="est-hours">${fmtDur(total)} · ${mine.length} shift${mine.length > 1 ? 's' : ''} au total</div>
     </div>`;
   }).join('');
@@ -577,7 +581,7 @@ function renderAbsences() {
   empty.classList.add('hidden');
   list.classList.remove('hidden');
   list.innerHTML = state.absences.slice().sort((a, b) => a.start.localeCompare(b.start)).map(a => {
-    const meta = AB_TYPES[a.type] || AB_TYPES['Congés'];
+    const meta = Object.hasOwn(AB_TYPES, a.type) ? AB_TYPES[a.type] : AB_TYPES['Autre'];
     const d1 = fromISO(a.start), d2 = fromISO(a.end);
     const dates = a.start === a.end
       ? `le ${d1.getDate()} ${MONTHS[d1.getMonth()]} ${d1.getFullYear()}`
@@ -590,8 +594,8 @@ function renderAbsences() {
       </div>
       <span class="badge-status">✓ ${esc(a.status || 'Confirmée')}</span>
       <div class="a-actions">
-        <button type="button" class="icon-btn" data-edit="${a.id}" title="Modifier">✎</button>
-        <button type="button" class="icon-btn" data-del="${a.id}" title="Supprimer">🗑️</button>
+        <button type="button" class="icon-btn" data-edit="${a.id}" title="Modifier" aria-label="Modifier l'absence">✎</button>
+        <button type="button" class="icon-btn" data-del="${a.id}" title="Supprimer" aria-label="Supprimer l'absence">🗑️</button>
       </div>
     </div>`;
   }).join('');
@@ -654,8 +658,8 @@ function renderStats() {
   const maxEst = Math.max(...byEst.map(x => x.min), 1);
   $('#hbarsEst').innerHTML = byEst.length
     ? byEst.map(x => `<div class="hbar-row">
-        <div class="hbar-key"><span class="est-dot" style="--c:${x.color}"></span>${esc(x.name)}</div>
-        <div class="hbar-track"><div class="hbar" style="--v:${Math.round(x.min / maxEst * 100)}%;--c:${x.color}"></div></div>
+        <div class="hbar-key"><span class="est-dot" style="--c:${colorSafe(x.color)}"></span>${esc(x.name)}</div>
+        <div class="hbar-track"><div class="hbar" style="--v:${Math.round(x.min / maxEst * 100)}%;--c:${colorSafe(x.color)}"></div></div>
         <div class="hbar-val">${fmtDur(x.min)}</div>
       </div>`).join('')
     : '<div class="muted">Pas encore de données sur les 30 derniers jours.</div>';
@@ -663,7 +667,7 @@ function renderStats() {
   const byLabel = {};
   recent.forEach(s => {
     const k = (s.label || 'SHIFT').toUpperCase();
-    byLabel[k] = (byLabel[k] || 0) + durMinutes(s.start, s.end);
+    byLabel[k] = (Object.hasOwn(byLabel, k) ? byLabel[k] : 0) + durMinutes(s.start, s.end);
   });
   const top = Object.entries(byLabel).sort((a, b) => b[1] - a[1]).slice(0, 5);
   const maxL = Math.max(...top.map(x => x[1]), 1);
